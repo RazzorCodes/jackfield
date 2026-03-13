@@ -10,7 +10,7 @@ pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
 [features]
 python = ["dep:pyo3"]
 # ---
-default = ["python"]
+default = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
