@@ -1,0 +1,16 @@
+[package]
+name = "jackfield"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+uuid = { version = "1.8", features = ["v4"] }
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+
+[features]
+python = ["dep:pyo3"]
+# ---
+default = ["python"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
