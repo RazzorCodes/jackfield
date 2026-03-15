@@ -1,2 +1,2 @@
+pub mod bus;
 pub mod message;
-pub mod message_bus;

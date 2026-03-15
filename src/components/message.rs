@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 pub trait Message: Send + Sync {
     fn get_uuid(&self) -> Uuid;
-    fn aquire_uuid(&mut self);
+    fn acquire_uuid(&mut self);
     fn get_labels(&self) -> &[String];
     fn get_bytes(&self) -> &[u8];
 }
@@ -27,7 +27,7 @@ impl Message for BaseMessage {
     fn get_uuid(&self) -> Uuid {
         self.uuid
     }
-    fn aquire_uuid(&mut self) {
+    fn acquire_uuid(&mut self) {
         self.uuid = Uuid::new_v4();
     }
     fn get_labels(&self) -> &[String] {
