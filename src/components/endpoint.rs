@@ -1,6 +1,8 @@
+use std::future::Future;
+
+use crate::components::bus::envelope::{Envelope, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
-use crate::components::message::*;
-use std::sync::mpsc::Sender;
+use crate::components::message::Message;
 
 pub trait Handler: Send + Sync {
     fn handle(&mut self) -> Option<Box<dyn Message>>;
@@ -8,13 +10,14 @@ pub trait Handler: Send + Sync {
 
 pub trait Consumer: Sync + Send {
     fn available(&self) -> bool;
-    fn validate(&self, message: &dyn Message) -> bool;
+    fn validate(&self, envelope: &Envelope) -> bool;
     fn consume(&mut self, message: Box<dyn Message>);
 }
 
 pub trait Producer {
-    fn attach(&mut self, sender: Sender<Box<dyn Message>>);
-    fn send_bus(&mut self, msg: Box<dyn Message>) -> Result<(), JackfieldError>;
+    fn name(&self) -> &str;
+    fn attach(&mut self, handle: ProducerHandle);
+    fn send_bus(&mut self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send;
 }
 
 use bitflags::bitflags;
@@ -30,7 +33,7 @@ bitflags! {
 pub struct Endpoint {
     name: String,
     flags: EndpointType,
-    sender: Option<Sender<Box<dyn Message>>>,
+    handle: Option<ProducerHandle>,
     consumer_handler: Option<Box<dyn Consumer>>,
     producer_handler: Option<Box<dyn Handler>>,
 }
@@ -40,7 +43,7 @@ impl Endpoint {
         Endpoint {
             name: name.into(),
             flags,
-            sender: None,
+            handle: None,
             consumer_handler: None,
             producer_handler: None,
         }
@@ -58,19 +61,36 @@ impl Endpoint {
 }
 
 impl Producer for Endpoint {
-    fn attach(&mut self, sender: Sender<Box<dyn Message>>) {
-        self.sender = Some(sender);
+    fn name(&self) -> &str {
+        &self.name
     }
 
-    fn send_bus(&mut self, msg: Box<dyn Message>) -> Result<(), JackfieldError> {
-        if !self.flags.contains(EndpointType::PRODUCER) {
-            return Err(JackfieldError::NotRegistered);
-        }
+    fn attach(&mut self, handle: ProducerHandle) {
+        self.handle = Some(handle);
+    }
 
-        self.sender
-            .as_ref()
-            .ok_or(JackfieldError::NotRegistered)?
-            .send(msg)
-            .map_err(|_| JackfieldError::ChannelClosed)
+    fn send_bus(&mut self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send {
+        let send_op = if self.flags.contains(EndpointType::PRODUCER) {
+            self.handle.as_ref().map(|h| h.make_send(msg))
+        } else {
+            None
+        };
+        async move { send_op.ok_or(JackfieldError::NotRegistered)?.await }
+    }
+}
+
+impl Consumer for Endpoint {
+    fn available(&self) -> bool {
+        self.consumer_handler.as_ref().is_some_and(|c| c.available())
+    }
+
+    fn validate(&self, envelope: &Envelope) -> bool {
+        self.consumer_handler.as_ref().is_some_and(|c| c.validate(envelope))
+    }
+
+    fn consume(&mut self, message: Box<dyn Message>) {
+        if let Some(handler) = &mut self.consumer_handler {
+            handler.consume(message);
+        }
     }
 }

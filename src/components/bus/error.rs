@@ -13,7 +13,7 @@ impl fmt::Display for JackfieldError {
         match self {
             Self::NotRegistered => write!(f, "Endpoint not registered with a bus"),
             Self::ChannelClosed => write!(f, "Bus channel has been closed"),
-            Self::Custom(msg) => write!(f, "Bus error: {}", msg),
+            Self::Custom(msg) => write!(f, "Bus error: {msg}"),
         }
     }
 }

@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 uuid = { version = "1.8", features = ["v4"] }
 bitflags = {version = "2.4"}
-tokyo = "*"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
 
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
 

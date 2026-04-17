@@ -1,40 +1,7 @@
-use crate::components::endpoint::*;
-use crate::components::message::*;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use tokio::sync::mpsc;
 
-struct Channel {
-    sender: Sender<Box<dyn Message>>,
-    receiver: Receiver<Box<dyn Message>>,
-}
-
-impl Channel {
-    fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
-        Channel { sender, receiver }
-    }
-
-    fn sender(&self) -> Sender<Box<dyn Message>> {
-        self.sender.clone()
-    }
-
-    fn drain(&self) -> Vec<Box<dyn Message>> {
-        self.receiver.try_iter().collect()
-    }
-
-    fn is_empty(&self) -> bool {
-        let result = self.receiver.try_recv();
-        let empty = matches!(result, Err(TryRecvError::Empty));
-        if !empty {
-            self.requeue(result.unwrap());
-        }
-
-        return empty;
-    }
-
-    fn requeue(&self, message: Box<dyn Message>) {
-        let _ = self.sender.send(message);
-    }
-}
+use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
+use crate::components::endpoint::{Consumer, Producer};
 
 struct Registry {
     consumers: Vec<Box<dyn Consumer>>,
@@ -51,25 +18,28 @@ impl Registry {
         self.consumers.push(consumer);
     }
 
-    fn route(&mut self, message: Box<dyn Message>) -> Option<Box<dyn Message>> {
-        if let Some(idx) = self.consumers.iter().position(|c| c.validate(&*message)) {
-            self.consumers[idx].consume(message);
-            None // consumed
+    fn route(&mut self, envelope: Envelope) -> Option<Envelope> {
+        if let Some(idx) = self.consumers.iter().position(|c| c.validate(&envelope)) {
+            self.consumers[idx].consume(envelope.message);
+            None
         } else {
-            Some(message) // no consumer matched → return it
+            Some(envelope)
         }
     }
 }
 
 pub struct Bus {
-    channel: Channel,
+    tx: mpsc::Sender<Envelope>,
+    rx: mpsc::Receiver<Envelope>,
     registry: Registry,
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
+        let (tx, rx) = mpsc::channel(capacity);
         Bus {
-            channel: Channel::new(),
+            tx,
+            rx,
             registry: Registry::new(),
         }
     }
@@ -78,25 +48,38 @@ impl Bus {
         self.registry.register(consumer);
     }
 
-    pub fn register_producer(&mut self, producer: &mut dyn Producer) {
-        producer.attach(self.channel.sender());
+    pub fn register_producer<P: Producer>(&mut self, producer: &mut P) {
+        let id = ProducerId(producer.name().to_string());
+        producer.attach(ProducerHandle::new(id, self.tx.clone()));
     }
 
-    pub fn done(&self) -> bool {
-        self.channel.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.rx.is_empty()
     }
 
-    pub fn route_sync(&mut self) {
-        for message in self.channel.drain() {
-            if let Some(unhandled) = self.registry.route(message) {
-                self.channel.requeue(unhandled);
+    /// Drains all currently pending messages synchronously. Unhandled messages are requeued.
+    pub fn drain(&mut self) {
+        let mut unhandled = Vec::new();
+        while let Ok(envelope) = self.rx.try_recv() {
+            if let Some(envelope) = self.registry.route(envelope) {
+                unhandled.push(envelope);
             }
+        }
+        for envelope in unhandled {
+            let _ = self.tx.try_send(envelope);
+        }
+    }
+
+    /// Continuous async dispatch loop. Runs until all senders are dropped.
+    pub async fn dispatch(&mut self) {
+        while let Some(envelope) = self.rx.recv().await {
+            self.registry.route(envelope);
         }
     }
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        Self::new(256)
     }
 }

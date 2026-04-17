@@ -1,12 +1,11 @@
+use crate::components::bus::bus::Bus;
+use crate::components::bus::envelope::Envelope;
+use crate::components::endpoint::Consumer;
 use crate::components::message::{BaseMessage, Message};
-use crate::components::message_bus::{Consumer, MessageBus as CoreBus};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::VecDeque;
 
 #[pymodule]
-// The function name MUST be the module name
-fn jackfield(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn jackfield(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMessageBus>()?;
     m.add_class::<PyMessage>()?;
     Ok(())
@@ -42,28 +41,29 @@ impl PyMessage {
 
 #[pyclass(name = "MessageBus")]
 pub struct PyMessageBus {
-    pub inner: CoreBus,
+    pub inner: Bus,
 }
 
 #[pymethods]
 impl PyMessageBus {
-    #[new] // Silence the deprecation warning
+    #[new]
     fn new() -> Self {
         Self {
-            // Ensure MessageBus has a 'new' method or use a struct literal
-            inner: CoreBus::new(),
+            inner: Bus::default(),
         }
     }
 }
 
-// Fixed: Added the missing wrapper struct
 struct PyConsumerWrapper {
     inner: PyObject,
 }
 
 impl Consumer for PyConsumerWrapper {
-    fn validate(&self, _message: &Box<dyn Message>) -> bool {
+    fn available(&self) -> bool {
         true
     }
-    fn consume(&self, _message: Box<dyn Message>) {}
+    fn validate(&self, _envelope: &Envelope) -> bool {
+        true
+    }
+    fn consume(&mut self, _message: Box<dyn Message>) {}
 }

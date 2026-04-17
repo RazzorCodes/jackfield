@@ -16,9 +16,9 @@ pub struct BaseMessage {
 impl BaseMessage {
     pub fn new(uuid: Option<Uuid>, labels: Option<Vec<String>>, data: Option<Vec<u8>>) -> Self {
         Self {
-            uuid: uuid.unwrap_or(Uuid::nil()),
-            labels: labels.unwrap_or_else(|| vec![]),
-            data: data.unwrap_or_else(|| vec![]),
+            uuid: uuid.unwrap_or_default(),
+            labels: labels.unwrap_or_default(),
+            data: data.unwrap_or_default(),
         }
     }
 }
@@ -31,10 +31,10 @@ impl Message for BaseMessage {
         self.uuid = Uuid::new_v4();
     }
     fn get_labels(&self) -> &[String] {
-        &self.labels[..]
+        &self.labels
     }
     fn get_bytes(&self) -> &[u8] {
-        &self.data[..]
+        &self.data
     }
 }
 
@@ -47,7 +47,8 @@ mod tests {
     #[test]
     fn test_message_creation() {
         let message = BaseMessage::new(None, None, None);
-
-        assert!(true)
+        assert_eq!(message.get_uuid(), Uuid::nil());
+        assert!(message.get_labels().is_empty());
+        assert!(message.get_bytes().is_empty());
     }
 }
