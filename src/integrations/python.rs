@@ -1,3 +1,6 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use crate::components::bus::bus::Bus;
 use crate::components::bus::envelope::Envelope;
 use crate::components::endpoint::Consumer;
@@ -65,5 +68,7 @@ impl Consumer for PyConsumerWrapper {
     fn validate(&self, _envelope: &Envelope) -> bool {
         true
     }
-    fn consume(&mut self, _message: Box<dyn Message>) {}
+    fn consume(&mut self, _message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async {})
+    }
 }

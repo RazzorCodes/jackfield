@@ -1,8 +1,10 @@
 use std::fmt;
 use std::future::Future;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::components::bus::error::JackfieldError;
+use crate::components::bus::throttle::TokenBucket;
 use crate::components::message::Message;
 use tokio::sync::mpsc;
 
@@ -42,18 +44,27 @@ pub struct Envelope {
 pub struct ProducerHandle {
     origin: ProducerId,
     sender: mpsc::Sender<Envelope>,
+    throttle: Option<Arc<tokio::sync::Mutex<TokenBucket>>>,
 }
 
 impl ProducerHandle {
-    pub(super) fn new(origin: ProducerId, sender: mpsc::Sender<Envelope>) -> Self {
-        ProducerHandle { origin, sender }
+    pub(super) fn new(
+        origin: ProducerId,
+        sender: mpsc::Sender<Envelope>,
+        throttle: Option<Arc<tokio::sync::Mutex<TokenBucket>>>,
+    ) -> Self {
+        ProducerHandle { origin, sender, throttle }
     }
 
     /// Returns an owned future (clones sender + origin) so callers can return `impl Future + Send + 'static`.
     pub fn make_send(&self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send + 'static {
         let sender = self.sender.clone();
         let origin = self.origin.clone();
+        let throttle = self.throttle.clone();
         async move {
+            if let Some(bucket) = throttle {
+                bucket.lock().await.acquire().await;
+            }
             sender
                 .send(Envelope { origin, message: msg })
                 .await

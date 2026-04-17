@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
+use crate::components::bus::throttle::{Throttle, TokenBucket};
 use crate::components::endpoint::{Consumer, Producer};
 
 struct Registry {
@@ -18,9 +20,9 @@ impl Registry {
         self.consumers.push(consumer);
     }
 
-    fn route(&mut self, envelope: Envelope) -> Option<Envelope> {
+    async fn route(&mut self, envelope: Envelope) -> Option<Envelope> {
         if let Some(idx) = self.consumers.iter().position(|c| c.validate(&envelope)) {
-            self.consumers[idx].consume(envelope.message);
+            self.consumers[idx].consume(envelope.message).await;
             None
         } else {
             Some(envelope)
@@ -50,18 +52,24 @@ impl Bus {
 
     pub fn register_producer<P: Producer>(&mut self, producer: &mut P) {
         let id = ProducerId(producer.name().to_string());
-        producer.attach(ProducerHandle::new(id, self.tx.clone()));
+        producer.attach(ProducerHandle::new(id, self.tx.clone(), None));
+    }
+
+    pub fn register_producer_throttled<P: Producer>(&mut self, producer: &mut P, throttle: Throttle) {
+        let id = ProducerId(producer.name().to_string());
+        let bucket = Arc::new(tokio::sync::Mutex::new(TokenBucket::new(throttle.rate, throttle.burst)));
+        producer.attach(ProducerHandle::new(id, self.tx.clone(), Some(bucket)));
     }
 
     pub fn is_empty(&self) -> bool {
         self.rx.is_empty()
     }
 
-    /// Drains all currently pending messages synchronously. Unhandled messages are requeued.
-    pub fn drain(&mut self) {
+    /// Drains all currently pending messages. Unhandled messages are requeued.
+    pub async fn drain(&mut self) {
         let mut unhandled = Vec::new();
         while let Ok(envelope) = self.rx.try_recv() {
-            if let Some(envelope) = self.registry.route(envelope) {
+            if let Some(envelope) = self.registry.route(envelope).await {
                 unhandled.push(envelope);
             }
         }
@@ -73,7 +81,7 @@ impl Bus {
     /// Continuous async dispatch loop. Runs until all senders are dropped.
     pub async fn dispatch(&mut self) {
         while let Some(envelope) = self.rx.recv().await {
-            self.registry.route(envelope);
+            self.registry.route(envelope).await;
         }
     }
 }

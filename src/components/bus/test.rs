@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+    use std::future::Future;
+
     use crate::components::bus::bus::Bus;
     use crate::components::bus::envelope::Envelope;
     use crate::components::endpoint::{Consumer, Endpoint, EndpointType, Producer};
@@ -22,7 +25,9 @@ mod tests {
                 .all(|l| self.accepted_labels.contains(l))
         }
 
-        fn consume(&mut self, _message: Box<dyn crate::components::message::Message>) {}
+        fn consume(&mut self, _message: Box<dyn crate::components::message::Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            Box::pin(async {})
+        }
     }
 
     #[test]
@@ -70,7 +75,7 @@ mod tests {
             .await
             .unwrap();
 
-        bus.drain();
+        bus.drain().await;
         assert!(!bus.is_empty(), "Bus should have one unprocessed message");
 
         bus.register_consumer(Box::new(MockConsumer {
@@ -80,7 +85,7 @@ mod tests {
                 "label3".to_string(),
             ],
         }));
-        bus.drain();
+        bus.drain().await;
         assert!(bus.is_empty(), "Bus should be empty now");
     }
 
@@ -106,7 +111,9 @@ mod tests {
                     .push(envelope.origin.as_str().to_string());
                 true
             }
-            fn consume(&mut self, _: Box<dyn crate::components::message::Message>) {}
+            fn consume(&mut self, _: Box<dyn crate::components::message::Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async {})
+            }
         }
 
         let mut bus = Bus::default();
@@ -126,7 +133,7 @@ mod tests {
             .await
             .unwrap();
 
-        bus.drain();
+        bus.drain().await;
 
         let seen = captured.lock().unwrap();
         assert!(seen.contains(&"producer_a".to_string()));
