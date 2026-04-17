@@ -1,0 +1,12 @@
+syntax = "proto3";
+package jackfield;
+
+message BusMessage {
+    bytes           uuid   = 1;
+    repeated string labels = 2;
+    bytes           data   = 3;
+}
+
+service Bus {
+    rpc Stream(stream BusMessage) returns (stream BusMessage);
+}
