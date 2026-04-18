@@ -75,7 +75,7 @@ impl PyMessageBus {
     }
 
     /// Send a message from the named producer. The producer is registered lazily on first use.
-    pub fn send(&mut self, py: Python<'_>, producer_name: String, msg: &PyMessage) -> PyResult<()> {
+    pub fn send(&mut self, producer_name: String, msg: &PyMessage) -> PyResult<()> {
         let labels = msg.inner.get_labels().to_vec();
         let data = msg.inner.get_bytes().to_vec();
 
@@ -84,11 +84,8 @@ impl PyMessageBus {
             self.handles.insert(producer_name.clone(), h);
         }
 
-        let fut = self.handles[&producer_name].make_send(
-            Box::new(BaseMessage::new(None, Some(labels), Some(data))),
-        );
-
-        py.allow_threads(|| self.rt.block_on(fut))
+        self.handles[&producer_name]
+            .try_make_send(Box::new(BaseMessage::new(None, Some(labels), Some(data))))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 

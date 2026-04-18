@@ -135,3 +135,45 @@ def test_drain_is_idempotent_when_empty():
     bus.drain()
     bus.drain()
     assert bus.is_empty()
+
+
+# ── edge cases & potential bugs ──────────────────────────────────────────────
+
+def test_bus_full_raises_not_deadlocks():
+    """
+    Sending past capacity raises RuntimeError("Bus channel is full") immediately.
+    It must never block, because a blocked send holds the pyo3 borrow and makes
+    drain() on the same object impossible (would raise "Already borrowed").
+    """
+    bus = jackfield.MessageBus()
+    sent = 0
+    with pytest.raises(RuntimeError, match="full"):
+        for i in range(300):
+            bus.send("p", msg([str(i)]))
+            sent += 1
+    assert sent == 256, f"Expected exactly 256 to succeed before full, got {sent}"
+
+
+def test_unhandled_messages_not_lost_when_full():
+    """
+    If the bus is full and we drain it, unhandled messages should be requeued.
+    If requeueing fails because the bus is full, they might be lost.
+    """
+    bus = jackfield.MessageBus()
+    # Fill the bus with unhandled messages
+    for i in range(256):
+        bus.send("p", msg([f"msg_{i}"]))
+    
+    # Bus is now full.
+    assert not bus.is_empty()
+    
+    # Drain. This should try to requeue 256 messages.
+    bus.drain()
+    
+    # Check if we still have 256 messages.
+    # We can count them by draining into a consumer that accepts everything.
+    received = []
+    bus.register_consumer(lambda m: received.append(m.get_labels()[0]))
+    bus.drain()
+    
+    assert len(received) == 256, f"Expected 256 messages, but got {len(received)}. Messages were lost during requeue!"

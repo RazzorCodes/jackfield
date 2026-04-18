@@ -5,6 +5,7 @@ use std::fmt;
 pub enum JackfieldError {
     NotRegistered,
     ChannelClosed,
+    ChannelFull,
     Custom(String),
 }
 
@@ -13,6 +14,7 @@ impl fmt::Display for JackfieldError {
         match self {
             Self::NotRegistered => write!(f, "Endpoint not registered with a bus"),
             Self::ChannelClosed => write!(f, "Bus channel has been closed"),
+            Self::ChannelFull => write!(f, "Bus channel is full"),
             Self::Custom(msg) => write!(f, "Bus error: {msg}"),
         }
     }

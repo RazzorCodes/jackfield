@@ -56,6 +56,17 @@ impl ProducerHandle {
         ProducerHandle { origin, sender, throttle }
     }
 
+    /// Non-blocking send: returns `Err(ChannelFull)` immediately if the channel has no space.
+    /// Intended for synchronous callers (e.g. Python) that cannot await.
+    pub fn try_make_send(&self, msg: Box<dyn Message>) -> Result<(), JackfieldError> {
+        self.sender
+            .try_send(Envelope { origin: self.origin.clone(), message: msg })
+            .map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => JackfieldError::ChannelFull,
+                mpsc::error::TrySendError::Closed(_) => JackfieldError::ChannelClosed,
+            })
+    }
+
     pub fn make_send(&self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send + 'static {
         let sender = self.sender.clone();
         let origin = self.origin.clone();
