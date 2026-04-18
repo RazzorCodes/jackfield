@@ -50,6 +50,13 @@ impl Bus {
         self.registry.register(consumer);
     }
 
+    /// Creates a `ProducerHandle` directly without going through a `Producer` impl.
+    /// Useful for embedding producers (e.g. Python integration) that manage the handle themselves.
+    pub fn make_handle(&self, name: impl Into<String>) -> ProducerHandle {
+        let id = ProducerId(name.into());
+        ProducerHandle::new(id, self.tx.clone(), None)
+    }
+
     pub fn register_producer<P: Producer>(&mut self, producer: &mut P) {
         let id = ProducerId(producer.name().to_string());
         producer.attach(ProducerHandle::new(id, self.tx.clone(), None));
