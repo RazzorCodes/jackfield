@@ -1,8 +1,6 @@
-use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
@@ -17,17 +15,14 @@ use crate::components::bus::codec::proto;
 use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::endpoint::{Consumer, Producer};
+use crate::components::endpoints::connection::ConnectionRegistry;
 use crate::components::message::Message;
-
-type ConnectionId = u64;
-type Connections = Arc<Mutex<HashMap<ConnectionId, mpsc::Sender<Vec<u8>>>>>;
 
 pub struct WsEndpoint {
     name: String,
     addr: SocketAddr,
     handle: Option<ProducerHandle>,
-    connections: Connections,
-    next_id: Arc<AtomicU64>,
+    registry: ConnectionRegistry<Vec<u8>>,
 }
 
 impl WsEndpoint {
@@ -36,35 +31,38 @@ impl WsEndpoint {
             name: name.into(),
             addr,
             handle: None,
-            connections: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(AtomicU64::new(0)),
+            registry: ConnectionRegistry::new(),
         }
     }
 
+    pub fn accept_labels(mut self, labels: Vec<String>) -> Self {
+        self.registry = self.registry.accept_labels(labels);
+        self
+    }
+
     pub fn start(self) -> JoinHandle<()> {
-        let name = self.name.clone();
+        let name = self.name;
         let handle = Arc::new(Mutex::new(self.handle));
-        let connections = self.connections.clone();
-        let next_id = self.next_id.clone();
+        let registry = self.registry;
         let addr = self.addr;
 
         tokio::spawn(async move {
             let listener = TcpListener::bind(addr).await.expect("ws bind failed");
             loop {
                 let Ok((stream, _peer)) = listener.accept().await else { continue };
-                let conn_id = next_id.fetch_add(1, Ordering::Relaxed);
+
                 let (outbound_tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-                connections.lock().await.insert(conn_id, outbound_tx);
+                let conn_id = registry.connect(outbound_tx).await;
 
                 let name = name.clone();
                 let handle = handle.clone();
-                let connections = connections.clone();
+                let registry = registry.clone();
 
                 tokio::spawn(async move {
                     let ws = match accept_async(stream).await {
                         Ok(ws) => ws,
                         Err(_) => {
-                            connections.lock().await.remove(&conn_id);
+                            registry.disconnect(conn_id).await;
                             return;
                         }
                     };
@@ -98,7 +96,7 @@ impl WsEndpoint {
                     }
 
                     sink_task.abort();
-                    connections.lock().await.remove(&conn_id);
+                    registry.disconnect(conn_id).await;
                 });
             }
         })
@@ -121,11 +119,11 @@ impl Producer for WsEndpoint {
 
 impl Consumer for WsEndpoint {
     fn available(&self) -> bool {
-        true
+        self.registry.available()
     }
 
-    fn validate(&self, _envelope: &Envelope) -> bool {
-        true
+    fn validate(&self, envelope: &Envelope) -> bool {
+        self.registry.validates(envelope)
     }
 
     fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
@@ -133,18 +131,7 @@ impl Consumer for WsEndpoint {
             let proto_msg: proto::BusMessage = message.into();
             proto_msg.encode_to_vec()
         };
-        let connections = self.connections.clone();
-        Box::pin(async move {
-            let mut conns = connections.lock().await;
-            let mut dead = Vec::new();
-            for (id, tx) in conns.iter() {
-                if tx.send(bytes.clone()).await.is_err() {
-                    dead.push(*id);
-                }
-            }
-            for id in dead {
-                conns.remove(&id);
-            }
-        })
+        let registry = self.registry.clone();
+        Box::pin(async move { registry.broadcast(bytes).await })
     }
 }

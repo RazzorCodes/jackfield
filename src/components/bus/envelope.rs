@@ -7,6 +7,7 @@ use crate::components::bus::error::JackfieldError;
 use crate::components::bus::throttle::TokenBucket;
 use crate::components::message::Message;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProducerId(pub String);
@@ -73,7 +74,14 @@ impl ProducerHandle {
         let throttle = self.throttle.clone();
         async move {
             if let Some(bucket) = throttle {
-                bucket.lock().await.acquire().await;
+                loop {
+                    // Lock, check, unlock — then sleep outside the lock if needed.
+                    let wait = bucket.lock().await.try_acquire();
+                    match wait {
+                        None => break,
+                        Some(d) => sleep(d).await,
+                    }
+                }
             }
             sender
                 .send(Envelope { origin, message: msg })
@@ -93,7 +101,13 @@ impl ProducerHandle {
         let throttle = self.throttle.clone();
         async move {
             if let Some(bucket) = throttle {
-                bucket.lock().await.acquire().await;
+                loop {
+                    let wait = bucket.lock().await.try_acquire();
+                    match wait {
+                        None => break,
+                        Some(d) => sleep(d).await,
+                    }
+                }
             }
             sender
                 .send(Envelope { origin, message: msg })

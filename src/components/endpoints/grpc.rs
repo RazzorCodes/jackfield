@@ -1,8 +1,6 @@
-use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, Mutex};
@@ -18,17 +16,14 @@ use crate::components::bus::codec::proto::{
 use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::endpoint::{Consumer, Producer};
+use crate::components::endpoints::connection::ConnectionRegistry;
 use crate::components::message::Message;
-
-type ConnectionId = u64;
-type Connections = Arc<Mutex<HashMap<ConnectionId, mpsc::Sender<proto::BusMessage>>>>;
 
 pub struct GrpcEndpoint {
     name: String,
     addr: SocketAddr,
     handle: Option<ProducerHandle>,
-    connections: Connections,
-    next_id: Arc<AtomicU64>,
+    registry: ConnectionRegistry<proto::BusMessage>,
 }
 
 impl GrpcEndpoint {
@@ -37,17 +32,20 @@ impl GrpcEndpoint {
             name: name.into(),
             addr,
             handle: None,
-            connections: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(AtomicU64::new(0)),
+            registry: ConnectionRegistry::new(),
         }
+    }
+
+    pub fn accept_labels(mut self, labels: Vec<String>) -> Self {
+        self.registry = self.registry.accept_labels(labels);
+        self
     }
 
     pub fn start(self) -> JoinHandle<()> {
         let service = JackfieldGrpcService {
-            name: self.name.clone(),
+            name: self.name,
             handle: Arc::new(Mutex::new(self.handle)),
-            connections: self.connections.clone(),
-            next_id: self.next_id.clone(),
+            registry: self.registry,
         };
         let addr = self.addr;
         tokio::spawn(async move {
@@ -76,36 +74,24 @@ impl Producer for GrpcEndpoint {
 
 impl Consumer for GrpcEndpoint {
     fn available(&self) -> bool {
-        true
+        self.registry.available()
     }
 
-    fn validate(&self, _envelope: &Envelope) -> bool {
-        true
+    fn validate(&self, envelope: &Envelope) -> bool {
+        self.registry.validates(envelope)
     }
 
     fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         let bus_msg: proto::BusMessage = message.into();
-        let connections = self.connections.clone();
-        Box::pin(async move {
-            let mut conns = connections.lock().await;
-            let mut dead = Vec::new();
-            for (id, tx) in conns.iter() {
-                if tx.send(bus_msg.clone()).await.is_err() {
-                    dead.push(*id);
-                }
-            }
-            for id in dead {
-                conns.remove(&id);
-            }
-        })
+        let registry = self.registry.clone();
+        Box::pin(async move { registry.broadcast(bus_msg).await })
     }
 }
 
 struct JackfieldGrpcService {
     name: String,
     handle: Arc<Mutex<Option<ProducerHandle>>>,
-    connections: Connections,
-    next_id: Arc<AtomicU64>,
+    registry: ConnectionRegistry<proto::BusMessage>,
 }
 
 #[async_trait]
@@ -116,12 +102,12 @@ impl BusTrait for JackfieldGrpcService {
         &self,
         request: Request<Streaming<proto::BusMessage>>,
     ) -> Result<Response<Self::StreamStream>, Status> {
-        let conn_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (bus_msg_tx, mut bus_msg_rx) = mpsc::channel::<proto::BusMessage>(256);
         let (outbound_tx, outbound_rx) = mpsc::channel::<Result<proto::BusMessage, Status>>(256);
 
-        let (bus_msg_tx, mut bus_msg_rx) = mpsc::channel::<proto::BusMessage>(256);
-        self.connections.lock().await.insert(conn_id, bus_msg_tx);
+        let conn_id = self.registry.connect(bus_msg_tx).await;
 
+        // Forward from the per-connection channel to the outbound gRPC stream.
         let outbound_tx_clone = outbound_tx.clone();
         tokio::spawn(async move {
             while let Some(msg) = bus_msg_rx.recv().await {
@@ -133,7 +119,7 @@ impl BusTrait for JackfieldGrpcService {
 
         let name = self.name.clone();
         let handle = self.handle.clone();
-        let connections = self.connections.clone();
+        let registry = self.registry.clone();
         let mut inbound = request.into_inner();
         tokio::spawn(async move {
             let producer_id = ProducerId(format!("{}/{}", name, conn_id));
@@ -146,7 +132,7 @@ impl BusTrait for JackfieldGrpcService {
                     let _ = fut.await;
                 }
             }
-            connections.lock().await.remove(&conn_id);
+            registry.disconnect(conn_id).await;
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(outbound_rx)))

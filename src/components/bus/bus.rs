@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -21,7 +22,7 @@ impl Registry {
     }
 
     async fn route(&mut self, envelope: Envelope) -> Option<Envelope> {
-        if let Some(idx) = self.consumers.iter().position(|c| c.validate(&envelope)) {
+        if let Some(idx) = self.consumers.iter().position(|c| c.available() && c.validate(&envelope)) {
             self.consumers[idx].consume(envelope.message).await;
             None
         } else {
@@ -34,6 +35,8 @@ pub struct Bus {
     tx: mpsc::Sender<Envelope>,
     rx: mpsc::Receiver<Envelope>,
     registry: Registry,
+    pending: VecDeque<Envelope>,
+    max_pending: usize,
 }
 
 impl Bus {
@@ -43,7 +46,23 @@ impl Bus {
             tx,
             rx,
             registry: Registry::new(),
+            pending: VecDeque::new(),
+            max_pending: usize::MAX,
         }
+    }
+
+    /// Cap the number of unroutable messages held between drain cycles.
+    /// When full, the oldest unrouted message is evicted to make room for the newest.
+    pub fn max_pending(mut self, cap: usize) -> Self {
+        self.max_pending = cap;
+        self
+    }
+
+    fn push_pending(&mut self, envelope: Envelope) {
+        if self.pending.len() >= self.max_pending {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(envelope);
     }
 
     pub fn register_consumer(&mut self, consumer: Box<dyn Consumer>) {
@@ -69,32 +88,39 @@ impl Bus {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rx.is_empty()
+        self.rx.is_empty() && self.pending.is_empty()
     }
 
-    /// Drains all currently pending messages. Unhandled messages are requeued.
+    /// Drains all currently pending messages. Unhandled messages are retained
+    /// in an internal buffer (capped at `max_pending`) and retried next call.
     pub async fn drain(&mut self) {
-        let mut unhandled = Vec::new();
-        while let Ok(envelope) = self.rx.try_recv() {
+        // Re-attempt messages that were unhandled on a previous drain.
+        for envelope in std::mem::take(&mut self.pending) {
             if let Some(envelope) = self.registry.route(envelope).await {
-                unhandled.push(envelope);
+                self.push_pending(envelope);
             }
         }
-        for envelope in unhandled {
-            let _ = self.tx.try_send(envelope);
+        // Process newly arrived messages from the channel.
+        while let Ok(envelope) = self.rx.try_recv() {
+            if let Some(envelope) = self.registry.route(envelope).await {
+                self.push_pending(envelope);
+            }
         }
     }
 
     /// Continuous async dispatch loop. Runs until all senders are dropped.
+    /// Messages that no consumer accepts are held in the internal pending buffer.
     pub async fn dispatch(&mut self) {
         while let Some(envelope) = self.rx.recv().await {
-            self.registry.route(envelope).await;
+            if let Some(unhandled) = self.registry.route(envelope).await {
+                self.push_pending(unhandled);
+            }
         }
     }
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(256)
+        Self::new(256).max_pending(1024)
     }
 }

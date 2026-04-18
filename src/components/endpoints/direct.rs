@@ -4,14 +4,13 @@ use std::pin::Pin;
 use crate::components::bus::envelope::{Envelope, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::message::Message;
-use crate::components::endpoint::{Consumer, Handler, Producer, EndpointType};
+use crate::components::endpoint::{Consumer, Producer, EndpointType};
 
 pub struct Endpoint {
     name: String,
     flags: EndpointType,
     handle: Option<ProducerHandle>,
     consumer_handler: Option<Box<dyn Consumer>>,
-    producer_handler: Option<Box<dyn Handler>>,
 }
 
 impl Endpoint {
@@ -21,17 +20,11 @@ impl Endpoint {
             flags,
             handle: None,
             consumer_handler: None,
-            producer_handler: None,
         }
     }
 
     pub fn set_consumer(mut self, consumer: impl Consumer + 'static) -> Self {
         self.consumer_handler = Some(Box::new(consumer));
-        self
-    }
-
-    pub fn set_producer(mut self, handler: impl Handler + 'static) -> Self {
-        self.producer_handler = Some(Box::new(handler));
         self
     }
 }

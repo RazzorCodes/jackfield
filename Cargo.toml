@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 uuid = { version = "1.8", features = ["v4"] }
 bitflags = {version = "2.4"}
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 tonic = { version = "0.12", features = ["transport"] }
 prost = "0.13"
 tokio-stream = "0.1"

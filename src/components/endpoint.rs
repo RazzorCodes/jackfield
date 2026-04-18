@@ -5,10 +5,6 @@ use crate::components::bus::envelope::{Envelope, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::message::Message;
 
-pub trait Handler: Send + Sync {
-    fn handle(&mut self) -> Option<Box<dyn Message>>;
-}
-
 pub trait Consumer: Sync + Send {
     fn available(&self) -> bool;
     fn validate(&self, envelope: &Envelope) -> bool;

@@ -1,3 +1,4 @@
+pub mod connection;
 pub mod direct;
 pub mod grpc;
 pub mod ws;

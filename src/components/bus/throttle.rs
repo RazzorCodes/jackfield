@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 
 pub struct TokenBucket {
     capacity: f64,
@@ -26,17 +26,16 @@ impl TokenBucket {
         self.last_refill = now;
     }
 
-    pub async fn acquire(&mut self) {
-        loop {
-            self.refill();
-            if self.tokens >= 1.0 {
-                self.tokens -= 1.0;
-                return;
-            }
-            // Calculate how long to wait for 1 token
-            let wait_secs = (1.0 - self.tokens) / self.rate;
-            let wait_duration = Duration::from_secs_f64(wait_secs);
-            sleep(wait_duration).await;
+    /// Try to consume one token. Returns `None` if a token was available (caller may proceed),
+    /// or `Some(duration)` indicating how long to wait before trying again.
+    /// Does not block — the caller is responsible for sleeping outside the lock.
+    pub fn try_acquire(&mut self) -> Option<Duration> {
+        self.refill();
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            None
+        } else {
+            Some(Duration::from_secs_f64((1.0 - self.tokens) / self.rate))
         }
     }
 }
