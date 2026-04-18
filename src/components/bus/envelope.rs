@@ -56,10 +56,29 @@ impl ProducerHandle {
         ProducerHandle { origin, sender, throttle }
     }
 
-    /// Returns an owned future (clones sender + origin) so callers can return `impl Future + Send + 'static`.
     pub fn make_send(&self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send + 'static {
         let sender = self.sender.clone();
         let origin = self.origin.clone();
+        let throttle = self.throttle.clone();
+        async move {
+            if let Some(bucket) = throttle {
+                bucket.lock().await.acquire().await;
+            }
+            sender
+                .send(Envelope { origin, message: msg })
+                .await
+                .map_err(|_| JackfieldError::ChannelClosed)
+        }
+    }
+
+    /// Like `make_send` but uses an explicitly provided origin — for shared handles across multiple
+    /// connections (e.g. gRPC) where each connection needs its own distinct `ProducerId`.
+    pub fn make_send_with_origin(
+        &self,
+        origin: ProducerId,
+        msg: Box<dyn Message>,
+    ) -> impl Future<Output = Result<(), JackfieldError>> + Send + 'static {
+        let sender = self.sender.clone();
         let throttle = self.throttle.clone();
         async move {
             if let Some(bucket) = throttle {
