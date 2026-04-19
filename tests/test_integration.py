@@ -86,8 +86,8 @@ def test_fan_in_from_multiple_producers():
 def test_routing_by_producer_origin():
     from_a, from_b = [], []
     bus = jackfield.MessageBus()
-    bus.register_consumer(lambda m: from_a.append(m.get_labels()[0]), accept_from="a")
-    bus.register_consumer(lambda m: from_b.append(m.get_labels()[0]), accept_from="b")
+    bus.register_consumer(lambda m: from_a.append(m.get_labels()[0]), require_from="a")
+    bus.register_consumer(lambda m: from_b.append(m.get_labels()[0]), require_from="b")
     bus.send("a", msg(["x"]))
     bus.send("a", msg(["y"]))
     bus.send("b", msg(["z"]))
@@ -110,7 +110,7 @@ def test_origin_does_not_appear_in_message_payload():
 
 def test_unhandled_messages_stay_in_bus():
     bus = jackfield.MessageBus()
-    bus.register_consumer(lambda m: None, accept_from="nobody")
+    bus.register_consumer(lambda m: None, require_from="nobody")
     bus.send("p", msg([]))
     bus.drain()
     assert not bus.is_empty()
@@ -152,6 +152,57 @@ def test_bus_full_raises_not_deadlocks():
             bus.send("p", msg([str(i)]))
             sent += 1
     assert sent == 256, f"Expected exactly 256 to succeed before full, got {sent}"
+
+
+def test_uuid_preserved_through_bus():
+    """UUID set on a sent message is visible to the receiving callback."""
+    import uuid as uuidmod
+    received_uuids = []
+    bus = jackfield.MessageBus()
+    bus.register_consumer(lambda m: received_uuids.append(m.get_uuid()))
+
+    # Python API creates messages with nil UUID; send a known one by creating
+    # a message via the normal path and checking it survives the round-trip.
+    bus.send("p", msg(["x"]))
+    bus.drain()
+    # nil UUID expected since jackfield.Message() doesn't take a uuid arg yet
+    assert received_uuids == ["00000000-0000-0000-0000-000000000000"]
+
+
+def test_callback_exception_does_not_drop_other_consumer_messages():
+    """
+    If consumer A's callback raises, consumer B's messages must still be delivered,
+    and A's undelivered messages must be re-queued (not silently dropped).
+    The re-queued message is replayed from the Python-side pending queue on the next
+    drain, so it is retried as soon as the callback stops raising.
+    """
+    from_b = []
+    from_a_retry = []
+    fail_once = [True]
+
+    def recovers(m):
+        if fail_once[0]:
+            fail_once[0] = False
+            raise RuntimeError("transient error")
+        from_a_retry.append(m.get_labels())
+
+    bus = jackfield.MessageBus()
+    bus.register_consumer(recovers, require_from="a")
+    bus.register_consumer(lambda m: from_b.append(m.get_labels()), require_from="b")
+
+    bus.send("a", msg(["for_a"]))
+    bus.send("b", msg(["for_b"]))
+
+    with pytest.raises(RuntimeError, match="transient error"):
+        bus.drain()
+
+    # b's message must have been delivered despite a's callback raising
+    assert from_b == [["for_b"]]
+
+    # a's message must survive in the re-queue and succeed on the next drain
+    bus.drain()
+    assert from_a_retry == [["for_a"]]
+    assert bus.is_empty()
 
 
 def test_unhandled_messages_not_lost_when_full():

@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use jackfield::components::bus::bus::Bus;
-use jackfield::components::bus::envelope::{Envelope, ProducerId};
+use jackfield::components::bus::dims::ProducerDim;
+use jackfield::components::bus::envelope::Envelope;
 use jackfield::components::bus::throttle::Throttle;
 use jackfield::components::bus::codec::proto;
 use jackfield::components::endpoint::{Consumer, Endpoint, EndpointType, Producer};
@@ -24,17 +25,11 @@ fn msg(labels: &[&str]) -> Box<dyn Message> {
 
 struct Collector {
     messages: Arc<Mutex<Vec<Vec<String>>>>,
-    accept_from: Option<ProducerId>,
 }
 
 impl Collector {
     fn new(store: Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-        Collector { messages: store, accept_from: None }
-    }
-
-    fn only_from(mut self, id: &str) -> Self {
-        self.accept_from = Some(ProducerId(id.to_string()));
-        self
+        Collector { messages: store }
     }
 }
 
@@ -43,11 +38,8 @@ impl Consumer for Collector {
         true
     }
 
-    fn validate(&self, envelope: &Envelope) -> bool {
-        match &self.accept_from {
-            Some(id) => &envelope.origin == id,
-            None => true,
-        }
+    fn validate(&self, _: &Envelope) -> bool {
+        true
     }
 
     fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
@@ -89,8 +81,10 @@ async fn route_by_producer_origin() {
     let from_b = Arc::new(Mutex::new(vec![]));
     let mut bus = Bus::default();
 
-    bus.register_consumer(Box::new(Collector::new(from_a.clone()).only_from("ep_a")));
-    bus.register_consumer(Box::new(Collector::new(from_b.clone()).only_from("ep_b")));
+    bus.register_consumer(Box::new(Collector::new(from_a.clone())))
+        .require(ProducerDim::only("ep_a"));
+    bus.register_consumer(Box::new(Collector::new(from_b.clone())))
+        .require(ProducerDim::only("ep_b"));
 
     let mut ep_a = Endpoint::new("ep_a", EndpointType::PRODUCER);
     let mut ep_b = Endpoint::new("ep_b", EndpointType::PRODUCER);
@@ -244,7 +238,8 @@ async fn endpoint_with_both_flags_routes_correctly() {
 
     let mut relay = Endpoint::new("relay", EndpointType::PRODUCER | EndpointType::CONSUMER);
     bus.register_producer(&mut relay);
-    bus.register_consumer(Box::new(Collector::new(received.clone()).only_from("relay")));
+    bus.register_consumer(Box::new(Collector::new(received.clone())))
+        .require(ProducerDim::only("relay"));
 
     relay.send_bus(msg(&["relayed"])).await.unwrap();
     bus.drain().await;
@@ -254,8 +249,6 @@ async fn endpoint_with_both_flags_routes_correctly() {
 
 #[tokio::test]
 async fn throttle_limits_send_rate() {
-    // 10 msg/sec, burst=1 => first token is free, then ~100ms per subsequent token.
-    // Sending 5 messages: 1 free + 4 * 100ms = ~400ms minimum.
     let timestamps: Arc<Mutex<Vec<tokio::time::Instant>>> = Arc::new(Mutex::new(vec![]));
     let timestamps_clone = timestamps.clone();
 
@@ -286,8 +279,6 @@ async fn throttle_limits_send_rate() {
 
     let elapsed_send = start.elapsed();
 
-    // The throttle delays happen on send_bus, so the 5 sends themselves
-    // should have taken >= 400ms (burst=1 means first is free, 4 more at 100ms each).
     assert!(
         elapsed_send >= Duration::from_millis(380),
         "Expected send phase >= 380ms, got {:?}",

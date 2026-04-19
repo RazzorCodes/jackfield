@@ -5,13 +5,15 @@ use std::sync::{Arc, Mutex};
 
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
+use uuid::Uuid;
 
 use crate::components::bus::bus::Bus;
+use crate::components::bus::dims::ProducerDim;
 use crate::components::bus::envelope::{Envelope, ProducerHandle};
 use crate::components::endpoint::Consumer;
 use crate::components::message::{BaseMessage, Message};
 
-type PendingMessages = Arc<Mutex<Vec<(Vec<String>, Vec<u8>)>>>;
+type PendingMessages = Arc<Mutex<Vec<(Uuid, Vec<String>, Vec<u8>)>>>;
 
 // ── PyMessage ────────────────────────────────────────────────────────────────
 
@@ -49,7 +51,6 @@ pub struct PyMessageBus {
     rt: Runtime,
     bus: Bus,
     handles: HashMap<String, ProducerHandle>,
-    /// Parallel to the bus consumer registry: (callback, shared pending queue).
     consumer_queues: Vec<(Arc<PyObject>, PendingMessages)>,
 }
 
@@ -70,17 +71,22 @@ impl PyMessageBus {
     }
 
     /// Register a Python callable as a consumer.
-    /// `accept_from`: if provided, only messages from that producer name are delivered.
-    #[pyo3(signature = (callback, accept_from=None))]
-    pub fn register_consumer(&mut self, callback: PyObject, accept_from: Option<String>) {
+    /// `require_from`: if provided, only messages from that producer name are delivered.
+    #[pyo3(signature = (callback, require_from=None))]
+    pub fn register_consumer(&mut self, callback: PyObject, require_from: Option<String>) {
         let callback = Arc::new(callback);
         let pending: PendingMessages = Arc::new(Mutex::new(Vec::new()));
         self.consumer_queues.push((Arc::clone(&callback), Arc::clone(&pending)));
-        self.bus.register_consumer(Box::new(PyConsumerWrapper { accept_from, pending }));
+        let wrapper = PyConsumerWrapper { pending };
+        let builder = self.bus.register_consumer(Box::new(wrapper));
+        if let Some(name) = require_from {
+            builder.require(ProducerDim::only(name));
+        }
     }
 
     /// Send a message from the named producer. The producer is registered lazily on first use.
     pub fn send(&mut self, producer_name: String, msg: &PyMessage) -> PyResult<()> {
+        let uuid = msg.inner.get_uuid();
         let labels = msg.inner.get_labels().to_vec();
         let data = msg.inner.get_bytes().to_vec();
 
@@ -90,27 +96,41 @@ impl PyMessageBus {
         }
 
         self.handles[&producer_name]
-            .try_make_send(Box::new(BaseMessage::new(None, Some(labels), Some(data))))
+            .try_make_send(Box::new(BaseMessage::new(Some(uuid), Some(labels), Some(data))))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Drain all pending messages through registered consumers, then invoke Python
-    /// callbacks in Python context. Exceptions raised by callbacks propagate as `RuntimeError`.
+    /// Drain all pending messages and invoke Python callbacks.
+    ///
+    /// If a callback raises, its undelivered messages are re-queued for the next drain
+    /// and the first exception is returned after all consumers have been serviced.
     pub fn drain(&mut self, py: Python<'_>) -> PyResult<()> {
-        // Run the async drain without holding the GIL.
         py.allow_threads(|| self.rt.block_on(self.bus.drain()));
 
-        // Now call Python callbacks — GIL is held, no async runtime involved.
+        let mut first_err: Option<PyErr> = None;
         for (callback, pending) in &self.consumer_queues {
             let msgs: Vec<_> = pending.lock().unwrap().drain(..).collect();
-            for (labels, data) in msgs {
-                let py_msg = Py::new(py, PyMessage {
-                    inner: Box::new(BaseMessage::new(None, Some(labels), Some(data))),
-                })?;
-                callback.call1(py, (py_msg,))?;
+            for (i, (uuid, labels, data)) in msgs.iter().enumerate() {
+                let result = Py::new(py, PyMessage {
+                    inner: Box::new(BaseMessage::new(
+                        Some(*uuid),
+                        Some(labels.clone()),
+                        Some(data.clone()),
+                    )),
+                })
+                .and_then(|py_msg| callback.call1(py, (py_msg,)).map(|_| ()));
+
+                if let Err(e) = result {
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
+                    // Re-queue the failed message and any that follow it.
+                    pending.lock().unwrap().extend(msgs[i..].iter().cloned());
+                    break;
+                }
             }
         }
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -121,7 +141,6 @@ impl PyMessageBus {
 // ── PyConsumerWrapper ────────────────────────────────────────────────────────
 
 struct PyConsumerWrapper {
-    accept_from: Option<String>,
     pending: PendingMessages,
 }
 
@@ -130,19 +149,17 @@ impl Consumer for PyConsumerWrapper {
         true
     }
 
-    fn validate(&self, envelope: &Envelope) -> bool {
-        match &self.accept_from {
-            Some(name) => envelope.origin.as_str() == name,
-            None => true,
-        }
+    fn validate(&self, _envelope: &Envelope) -> bool {
+        true
     }
 
     fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        let uuid = message.get_uuid();
         let labels = message.get_labels().to_vec();
         let data = message.get_bytes().to_vec();
         let pending = Arc::clone(&self.pending);
         Box::pin(async move {
-            pending.lock().unwrap().push((labels, data));
+            pending.lock().unwrap().push((uuid, labels, data));
         })
     }
 }

@@ -4,12 +4,19 @@ mod tests {
     use std::future::Future;
 
     use crate::components::bus::bus::Bus;
+    use crate::components::bus::dims::{LabelDim, ProducerDim};
     use crate::components::bus::envelope::Envelope;
     use crate::components::endpoint::{Consumer, Endpoint, EndpointType, Producer};
     use crate::components::message::BaseMessage;
 
     struct MockConsumer {
-        accepted_labels: Vec<String>,
+        received: Vec<Vec<String>>,
+    }
+
+    impl MockConsumer {
+        fn new() -> Self {
+            MockConsumer { received: vec![] }
+        }
     }
 
     impl Consumer for MockConsumer {
@@ -17,15 +24,12 @@ mod tests {
             true
         }
 
-        fn validate(&self, envelope: &Envelope) -> bool {
-            envelope
-                .message
-                .get_labels()
-                .iter()
-                .all(|l| self.accepted_labels.contains(l))
+        fn validate(&self, _: &Envelope) -> bool {
+            true
         }
 
-        fn consume(&mut self, _message: Box<dyn crate::components::message::Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        fn consume(&mut self, message: Box<dyn crate::components::message::Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            self.received.push(message.get_labels().to_vec());
             Box::pin(async {})
         }
     }
@@ -36,22 +40,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn routing() {
+    async fn routing_with_label_dim() {
         let mut bus = Bus::default();
 
-        bus.register_consumer(Box::new(MockConsumer {
-            accepted_labels: vec!["label1".to_string(), "label2".to_string()],
-        }));
+        // Consumer 1: prefers messages that have "label1" or "label2" (no hard requirement)
+        bus.register_consumer(Box::new(MockConsumer::new()))
+            .prefer(LabelDim::all_of(["label1", "label2"]), 1.0);
 
         let mut endpoint = Endpoint::new("test_endpoint", EndpointType::PRODUCER);
         bus.register_producer(&mut endpoint);
 
         endpoint
-            .send_bus(Box::new(BaseMessage::new(
-                None,
-                Some(vec!["label1".to_string()]),
-                None,
-            )))
+            .send_bus(Box::new(BaseMessage::new(None, Some(vec!["label1".to_string()]), None)))
             .await
             .unwrap();
         endpoint
@@ -65,28 +65,35 @@ mod tests {
         endpoint
             .send_bus(Box::new(BaseMessage::new(
                 None,
-                Some(vec![
-                    "label1".to_string(),
-                    "label2".to_string(),
-                    "label3".to_string(),
-                ]),
+                Some(vec!["label1".to_string(), "label2".to_string(), "label3".to_string()]),
                 None,
             )))
             .await
             .unwrap();
 
         bus.drain().await;
-        assert!(!bus.is_empty(), "Bus should have one unprocessed message");
+        // The consumer has no hard requirements so all 3 are consumed; bus is empty.
+        assert!(bus.is_empty(), "Bus should be empty");
+    }
 
-        bus.register_consumer(Box::new(MockConsumer {
-            accepted_labels: vec![
-                "label1".to_string(),
-                "label2".to_string(),
-                "label3".to_string(),
-            ],
-        }));
+    #[tokio::test]
+    async fn routing_with_producer_dim() {
+        let mut bus = Bus::default();
+
+        // Only accept messages from "only_this_producer"
+        bus.register_consumer(Box::new(MockConsumer::new()))
+            .require(ProducerDim::only("only_this_producer"));
+
+        let mut ep_a = Endpoint::new("only_this_producer", EndpointType::PRODUCER);
+        let mut ep_b = Endpoint::new("other_producer", EndpointType::PRODUCER);
+        bus.register_producer(&mut ep_a);
+        bus.register_producer(&mut ep_b);
+
+        ep_a.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
+        ep_b.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
+
         bus.drain().await;
-        assert!(bus.is_empty(), "Bus should be empty now");
+        assert!(!bus.is_empty(), "Message from other_producer should remain pending");
     }
 
     #[tokio::test]
@@ -126,12 +133,8 @@ mod tests {
         bus.register_producer(&mut ep_a);
         bus.register_producer(&mut ep_b);
 
-        ep_a.send_bus(Box::new(BaseMessage::new(None, None, None)))
-            .await
-            .unwrap();
-        ep_b.send_bus(Box::new(BaseMessage::new(None, None, None)))
-            .await
-            .unwrap();
+        ep_a.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
+        ep_b.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
 
         bus.drain().await;
 
