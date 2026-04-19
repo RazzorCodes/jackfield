@@ -10,3 +10,4 @@ dynamic = ["version"]
 [tool.maturin]
 features = ["python"]
 bindings = "pyo3"
+manifest-path = "../../../Cargo.toml"

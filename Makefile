@@ -23,4 +23,4 @@ test-py: dev
 	$(PYTEST) tests/test_integration.py -v
 
 dev: venv
-	cd $(PY_INTEGRATION) && $(MATURIN) develop --manifest-path $(CARGO_MANIFEST)
+	cd $(PY_INTEGRATION) && $(MATURIN) develop
