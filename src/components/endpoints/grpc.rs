@@ -107,7 +107,6 @@ impl BusTrait for JackfieldGrpcService {
 
         let conn_id = self.registry.connect(bus_msg_tx).await;
 
-        // Forward from the per-connection channel to the outbound gRPC stream.
         let outbound_tx_clone = outbound_tx.clone();
         tokio::spawn(async move {
             while let Some(msg) = bus_msg_rx.recv().await {

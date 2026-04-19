@@ -38,8 +38,6 @@ impl Message for BaseMessage {
     }
 }
 
-// ---
-
 #[cfg(test)]
 mod tests {
     use super::*;

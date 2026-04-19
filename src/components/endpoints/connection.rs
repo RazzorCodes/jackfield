@@ -35,12 +35,10 @@ impl<T: Clone + Send + 'static> ConnectionRegistry<T> {
         self
     }
 
-    /// Returns `true` when at least one client is connected.
     pub fn available(&self) -> bool {
         self.active.load(Ordering::Relaxed) > 0
     }
 
-    /// Returns `true` when the message should be forwarded to connected clients.
     pub fn validates(&self, envelope: &Envelope) -> bool {
         match &self.accept_labels {
             None => true,
@@ -64,20 +62,26 @@ impl<T: Clone + Send + 'static> ConnectionRegistry<T> {
         }
     }
 
-    /// Send `msg` to every live connection. Connections whose channel has closed are
-    /// pruned immediately; their active count is decremented here so that a subsequent
-    /// `disconnect` call for the same ID is a safe no-op.
+    /// Send `msg` to every live connection. Dead senders are pruned; subsequent
+    /// `disconnect` calls for the same ID are safe no-ops.
     pub async fn broadcast(&self, msg: T) {
-        let mut conns = self.connections.lock().await;
+        let senders: Vec<(u64, mpsc::Sender<T>)> = {
+            let conns = self.connections.lock().await;
+            conns.iter().map(|(id, tx)| (*id, tx.clone())).collect()
+        };
         let mut dead = Vec::new();
-        for (id, tx) in conns.iter() {
+        for (id, tx) in &senders {
             if tx.send(msg.clone()).await.is_err() {
                 dead.push(*id);
             }
         }
-        for id in dead {
-            conns.remove(&id);
-            self.active.fetch_sub(1, Ordering::Relaxed);
+        if !dead.is_empty() {
+            let mut conns = self.connections.lock().await;
+            for id in dead {
+                if conns.remove(&id).is_some() {
+                    self.active.fetch_sub(1, Ordering::Relaxed);
+                }
+            }
         }
     }
 }

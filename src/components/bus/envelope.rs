@@ -73,16 +73,7 @@ impl ProducerHandle {
         let origin = self.origin.clone();
         let throttle = self.throttle.clone();
         async move {
-            if let Some(bucket) = throttle {
-                loop {
-                    // Lock, check, unlock — then sleep outside the lock if needed.
-                    let wait = bucket.lock().await.try_acquire();
-                    match wait {
-                        None => break,
-                        Some(d) => sleep(d).await,
-                    }
-                }
-            }
+            wait_for_token(&throttle).await;
             sender
                 .send(Envelope { origin, message: msg })
                 .await
@@ -100,19 +91,24 @@ impl ProducerHandle {
         let sender = self.sender.clone();
         let throttle = self.throttle.clone();
         async move {
-            if let Some(bucket) = throttle {
-                loop {
-                    let wait = bucket.lock().await.try_acquire();
-                    match wait {
-                        None => break,
-                        Some(d) => sleep(d).await,
-                    }
-                }
-            }
+            wait_for_token(&throttle).await;
             sender
                 .send(Envelope { origin, message: msg })
                 .await
                 .map_err(|_| JackfieldError::ChannelClosed)
+        }
+    }
+}
+
+async fn wait_for_token(throttle: &Option<Arc<tokio::sync::Mutex<TokenBucket>>>) {
+    if let Some(bucket) = throttle {
+        loop {
+            // Lock, check, unlock — then sleep outside the lock if needed.
+            let wait = bucket.lock().await.try_acquire();
+            match wait {
+                None => break,
+                Some(d) => sleep(d).await,
+            }
         }
     }
 }

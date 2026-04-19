@@ -8,8 +8,6 @@ use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
 use crate::components::bus::throttle::{Throttle, TokenBucket};
 use crate::components::endpoint::{Consumer, Producer};
 
-// ── Registration internals ────────────────────────────────────────────────────
-
 struct DimEntry {
     dim: Box<dyn Dimension>,
     state: DimState,
@@ -20,8 +18,6 @@ struct RegistrationEntry {
     id: u64,
     consumer: Box<dyn Consumer>,
     dims: Vec<DimEntry>,
-    #[allow(dead_code)]
-    discovery: bool,
 }
 
 pub struct RegistrationBuilder<'a> {
@@ -41,14 +37,7 @@ impl<'a> RegistrationBuilder<'a> {
         self.entries[self.idx].dims.push(DimEntry { dim: Box::new(dim), state, reject_on_miss: false });
         self
     }
-
-    pub fn with_discovery(self) -> Self {
-        self.entries[self.idx].discovery = true;
-        self
-    }
 }
-
-// ── Registry ──────────────────────────────────────────────────────────────────
 
 struct Registry {
     entries: Vec<RegistrationEntry>,
@@ -57,7 +46,7 @@ struct Registry {
 
 struct RoutePlan {
     meta: Arc<EventMeta>,
-    qualified: Vec<(f32, usize)>,
+    qualified: Vec<(f32, u64, usize)>,
 }
 
 impl Registry {
@@ -68,7 +57,7 @@ impl Registry {
     fn register(&mut self, consumer: Box<dyn Consumer>) -> RegistrationBuilder<'_> {
         let id = self.next_id;
         self.next_id += 1;
-        self.entries.push(RegistrationEntry { id, consumer, dims: vec![], discovery: false });
+        self.entries.push(RegistrationEntry { id, consumer, dims: vec![] });
         let idx = self.entries.len() - 1;
         RegistrationBuilder { entries: &mut self.entries, idx }
     }
@@ -76,7 +65,7 @@ impl Registry {
     /// Ranks consumers for the given envelope without blocking on consumption.
     fn plan(&self, envelope: &Envelope) -> RoutePlan {
         let meta = Arc::new(EventMeta::from_envelope(envelope));
-        let mut qualified: Vec<(f32, usize)> = Vec::new();
+        let mut qualified: Vec<(f32, u64, usize)> = Vec::new();
 
         for (i, entry) in self.entries.iter().enumerate() {
             let mut total = 0.0f32;
@@ -98,19 +87,17 @@ impl Registry {
                 // Non-finite scores (NaN, ±inf from a misbehaving adaptive dim) are
                 // clamped to 0.0 so they never hijack the sort order.
                 let score = if total.is_finite() { total } else { 0.0 };
-                qualified.push((score, i));
+                qualified.push((score, entry.id, i));
             }
         }
 
-        // Sort by score descending, then registration ID ascending.
-        qualified.sort_by(|(sa, ia), (sb, ib)| {
-            sb.total_cmp(sa).then_with(|| self.entries[*ia].id.cmp(&self.entries[*ib].id))
+        qualified.sort_by(|(sa, id_a, _), (sb, id_b, _)| {
+            sb.total_cmp(sa).then_with(|| id_a.cmp(id_b))
         });
 
         RoutePlan { meta, qualified }
     }
 
-    /// Observes the outcome of a dispatch attempt.
     fn observe(&mut self, plan: RoutePlan, winner_idx: Option<usize>, pre_winner: Vec<(usize, bool)>) {
         let meta = plan.meta;
         let mut events: Vec<(usize, DispatchEvent)> = pre_winner
@@ -126,8 +113,8 @@ impl Registry {
             .collect();
 
         if let Some(winner_idx) = winner_idx {
-            if let Some(pos) = plan.qualified.iter().position(|(_, idx)| *idx == winner_idx) {
-                for (_, idx) in &plan.qualified[pos + 1..] {
+            if let Some(pos) = plan.qualified.iter().position(|(_, _, idx)| *idx == winner_idx) {
+                for (_, _, idx) in &plan.qualified[pos + 1..] {
                     events.push((*idx, DispatchEvent::Skipped { meta: meta.clone() }));
                 }
             }
@@ -147,8 +134,6 @@ impl Registry {
         }
     }
 }
-
-// ── Bus ───────────────────────────────────────────────────────────────────────
 
 pub struct Bus {
     tx: mpsc::Sender<Envelope>,
@@ -211,8 +196,7 @@ impl Bus {
         let mut pre_winner = Vec::new();
         let mut winner_idx = None;
 
-        let start = Instant::now();
-        for (_, idx) in &plan.qualified {
+        for (_, _, idx) in &plan.qualified {
             let entry = &mut self.registry.entries[*idx];
             if !entry.consumer.available() {
                 pre_winner.push((*idx, true));
@@ -225,6 +209,7 @@ impl Bus {
         }
 
         if let Some(idx) = winner_idx {
+            let start = Instant::now();
             let meta = plan.meta.clone();
             let consumer = &mut self.registry.entries[idx].consumer;
             consumer.consume(envelope.message).await;

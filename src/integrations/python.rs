@@ -124,7 +124,6 @@ impl PyMessageBus {
                     if first_err.is_none() {
                         first_err = Some(e);
                     }
-                    // Re-queue the failed message and any that follow it.
                     pending.lock().unwrap().extend(msgs[i..].iter().cloned());
                     break;
                 }

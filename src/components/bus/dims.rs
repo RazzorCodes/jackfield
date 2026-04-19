@@ -15,7 +15,6 @@ impl Matcher {
     }
 }
 
-/// Matches the message origin.
 pub struct ProducerDim(Matcher);
 
 impl ProducerDim {
@@ -40,10 +39,6 @@ impl Dimension for ProducerDim {
             Verdict::Reject
         }
     }
-
-    fn new_state(&self, initial_weight: f32) -> DimState {
-        DimState { weight: initial_weight, inner: Box::new(()) }
-    }
 }
 
 enum LabelMatcher {
@@ -52,7 +47,6 @@ enum LabelMatcher {
     NoneOf(Vec<String>),
 }
 
-/// Scores messages by label overlap.
 pub struct LabelDim(LabelMatcher);
 
 impl LabelDim {
@@ -79,13 +73,8 @@ impl Dimension for LabelDim {
         };
         Verdict::Score(if matched { 1.0 } else { 0.0 })
     }
-
-    fn new_state(&self, initial_weight: f32) -> DimState {
-        DimState { weight: initial_weight, inner: Box::new(()) }
-    }
 }
 
-/// Checks message size against thresholds.
 pub struct SizeDim {
     min: Option<usize>,
     max: Option<usize>,
@@ -116,9 +105,5 @@ impl Dimension for SizeDim {
         } else {
             Verdict::Score(1.0)
         }
-    }
-
-    fn new_state(&self, initial_weight: f32) -> DimState {
-        DimState { weight: initial_weight, inner: Box::new(()) }
     }
 }

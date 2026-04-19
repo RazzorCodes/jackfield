@@ -43,7 +43,6 @@ mod tests {
     async fn routing_with_label_dim() {
         let mut bus = Bus::default();
 
-        // Consumer 1: prefers messages that have "label1" or "label2" (no hard requirement)
         bus.register_consumer(Box::new(MockConsumer::new()))
             .prefer(LabelDim::all_of(["label1", "label2"]), 1.0);
 
@@ -72,7 +71,6 @@ mod tests {
             .unwrap();
 
         bus.drain().await;
-        // The consumer has no hard requirements so all 3 are consumed; bus is empty.
         assert!(bus.is_empty(), "Bus should be empty");
     }
 
@@ -80,7 +78,6 @@ mod tests {
     async fn routing_with_producer_dim() {
         let mut bus = Bus::default();
 
-        // Only accept messages from "only_this_producer"
         bus.register_consumer(Box::new(MockConsumer::new()))
             .require(ProducerDim::only("only_this_producer"));
 

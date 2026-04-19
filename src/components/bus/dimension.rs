@@ -43,5 +43,7 @@ pub enum DispatchEvent {
 pub trait Dimension: Send + Sync {
     fn evaluate(&self, env: &Envelope, state: &DimState) -> Verdict;
     fn observe(&self, _event: &DispatchEvent, _state: &mut DimState) {}
-    fn new_state(&self, initial_weight: f32) -> DimState;
+    fn new_state(&self, initial_weight: f32) -> DimState {
+        DimState { weight: initial_weight, inner: Box::new(()) }
+    }
 }
