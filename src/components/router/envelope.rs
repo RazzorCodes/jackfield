@@ -1,10 +1,11 @@
+// In-flight message wrapper: ProducerId (origin tag), Envelope (id + message), ProducerHandle (send API with optional throttle).
 use std::fmt;
 use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::components::bus::error::JackfieldError;
-use crate::components::bus::throttle::TokenBucket;
+use crate::components::endpoint::throttle::TokenBucket;
 use crate::components::message::Message;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -49,7 +50,7 @@ pub struct ProducerHandle {
 }
 
 impl ProducerHandle {
-    pub(super) fn new(
+    pub(crate) fn new(
         origin: ProducerId,
         sender: mpsc::Sender<Envelope>,
         throttle: Option<Arc<tokio::sync::Mutex<TokenBucket>>>,

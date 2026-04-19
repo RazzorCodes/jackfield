@@ -1,11 +1,12 @@
+// Unit tests for bus routing: label/producer dims, identity preservation.
 #[cfg(test)]
 mod tests {
     use std::pin::Pin;
     use std::future::Future;
 
     use crate::components::bus::bus::Bus;
-    use crate::components::bus::dims::{LabelDim, ProducerDim};
-    use crate::components::bus::envelope::Envelope;
+    use crate::components::router::dimensions::{LabelDim, ProducerDim};
+    use crate::components::router::envelope::Envelope;
     use crate::components::endpoint::{Consumer, Endpoint, EndpointType, Producer};
     use crate::components::message::BaseMessage;
 

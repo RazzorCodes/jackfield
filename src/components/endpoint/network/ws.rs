@@ -1,3 +1,4 @@
+// WsEndpoint: tokio-tungstenite WebSocket server. Same inbound/outbound split as GrpcEndpoint; wire format is protobuf-encoded BusMessage.
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -11,11 +12,11 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::components::bus::codec::proto;
-use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
+use crate::components::message::codec::proto;
+use crate::components::router::envelope::{Envelope, ProducerId, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::endpoint::{Consumer, Producer};
-use crate::components::endpoints::connection::ConnectionRegistry;
+use crate::components::endpoint::network::ConnectionRegistry;
 use crate::components::message::Message;
 
 pub struct WsEndpoint {

@@ -1,7 +1,8 @@
+// In-process Endpoint: implements both Producer and Consumer for local use within the same binary.
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::components::bus::envelope::{Envelope, ProducerHandle};
+use crate::components::router::envelope::{Envelope, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::message::Message;
 use crate::components::endpoint::{Consumer, Producer, EndpointType};
@@ -40,7 +41,7 @@ impl Producer for Endpoint {
 
     fn send_bus(&mut self, msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send {
         let send_op = if self.flags.contains(EndpointType::PRODUCER) {
-            self.handle.as_ref().map(|h| h.make_send(msg))
+            self.handle.as_ref().map(|h: &ProducerHandle| h.make_send(msg))
         } else {
             None
         };

@@ -1,3 +1,4 @@
+// ConnectionRegistry: shared connection table (connect/disconnect/broadcast) used by both gRPC and WS endpoints.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;

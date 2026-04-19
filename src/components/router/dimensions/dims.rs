@@ -1,5 +1,6 @@
+// Built-in routing dimensions: ProducerDim (by origin name), LabelDim (by message labels), SizeDim (by payload size).
 use super::dimension::{DimState, Dimension, Verdict};
-use crate::components::bus::envelope::Envelope;
+use crate::components::router::envelope::Envelope;
 
 #[derive(Clone)]
 enum Matcher {

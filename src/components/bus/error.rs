@@ -1,3 +1,4 @@
+// JackfieldError: error type covering send failures (not registered, channel full/closed).
 use std::error::Error;
 use std::fmt;
 

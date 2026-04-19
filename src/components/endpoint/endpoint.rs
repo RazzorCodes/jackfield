@@ -1,7 +1,8 @@
+// Consumer and Producer traits; EndpointType bitflag (PRODUCER | CONSUMER); re-exports Endpoint.
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::components::bus::envelope::{Envelope, ProducerHandle};
+use crate::components::router::envelope::{Envelope, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::message::Message;
 
@@ -27,4 +28,3 @@ bitflags! {
     }
 }
 
-pub use crate::components::endpoints::direct::Endpoint;

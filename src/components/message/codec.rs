@@ -1,3 +1,4 @@
+// Protobuf codec: generated BusMessage type + From conversions to/from Box<dyn Message>.
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/jackfield.rs"));
 }

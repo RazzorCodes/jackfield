@@ -1,8 +1,9 @@
+// Routing dimension trait: evaluate (score/reject a message), observe (post-dispatch feedback), DimState.
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::components::bus::envelope::{Envelope, ProducerId};
+use crate::components::router::envelope::{Envelope, ProducerId};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Verdict {

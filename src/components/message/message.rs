@@ -1,3 +1,4 @@
+// Message trait (uuid, labels, bytes) and BaseMessage, the default heap-allocated implementation.
 use uuid::Uuid;
 
 pub trait Message: Send + Sync {

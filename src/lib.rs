@@ -1,7 +1,13 @@
+// Crate root. Re-exports the public API and wires up the optional Python extension module.
 pub mod components;
 pub mod integrations;
 
-pub use components::{BaseMessage, Bus, Consumer, Dimension, DimState, DispatchEvent, Endpoint, EndpointType, Envelope, EventMeta, JackfieldError, LabelDim, Message, Producer, ProducerDim, ProducerHandle, ProducerId, RegistrationBuilder, SizeDim, Throttle, Verdict};
+pub use components::{
+    AffinityRouter, BaseMessage, BlindRouter, Bus, Consumer, Dimension, DimState, DispatchEvent,
+    Endpoint, EndpointType, Envelope, EventMeta, JackfieldError, LabelDim, Message, Producer,
+    ProducerDim, ProducerHandle, ProducerId, RegistrationBuilder, Router, SizeDim, Throttle,
+    Verdict,
+};
 #[cfg(feature = "grpc")]
 pub use components::{GrpcConsumer, GrpcEndpoint};
 #[cfg(feature = "websocket")]

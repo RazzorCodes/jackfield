@@ -1,3 +1,4 @@
+// Token-bucket rate limiter used by ProducerHandle; Throttle is the public config type.
 use std::time::Instant;
 
 use tokio::time::Duration;

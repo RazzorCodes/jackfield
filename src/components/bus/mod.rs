@@ -1,16 +1,8 @@
+// Bus sub-module index. Re-exports the routing/dispatch surface from child modules.
 pub mod bus;
-#[cfg(any(feature = "grpc", feature = "websocket"))]
-pub mod codec;
-pub mod dimension;
-pub mod dims;
-pub mod envelope;
 pub mod error;
+#[cfg(test)]
 pub mod test;
-pub mod throttle;
-
-pub use bus::{Bus, RegistrationBuilder};
-pub use dimension::{Dimension, DimState, DispatchEvent, EventMeta, Verdict};
-pub use dims::{LabelDim, ProducerDim, SizeDim};
-pub use envelope::{Envelope, ProducerHandle, ProducerId};
+pub use bus::Bus;
+pub use crate::components::router::registry::RegistrationBuilder;
 pub use error::JackfieldError;
-pub use throttle::Throttle;

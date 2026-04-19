@@ -1,3 +1,4 @@
+// GrpcEndpoint: tonic-based server. Inbound connections → bus via ProducerHandle. consumer() → GrpcConsumer for outbound broadcast.
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -9,14 +10,14 @@ use tonic::async_trait;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
 
-use crate::components::bus::codec::proto::{
+use crate::components::message::codec::proto::{
     self,
     bus_server::{Bus as BusTrait, BusServer},
 };
-use crate::components::bus::envelope::{Envelope, ProducerId, ProducerHandle};
+use crate::components::router::envelope::{Envelope, ProducerId, ProducerHandle};
 use crate::components::bus::error::JackfieldError;
 use crate::components::endpoint::{Consumer, Producer};
-use crate::components::endpoints::connection::ConnectionRegistry;
+use crate::components::endpoint::network::ConnectionRegistry;
 use crate::components::message::Message;
 
 pub struct GrpcEndpoint {
