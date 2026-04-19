@@ -1,5 +1,5 @@
 pub mod proto {
-    tonic::include_proto!("jackfield");
+    include!(concat!(env!("OUT_DIR"), "/jackfield.rs"));
 }
 
 use crate::components::message::{BaseMessage, Message};

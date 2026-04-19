@@ -27,14 +27,22 @@ pub struct RegistrationBuilder<'a> {
 
 impl<'a> RegistrationBuilder<'a> {
     pub fn require(self, dim: impl Dimension + 'static) -> Self {
+        self.require_boxed(Box::new(dim))
+    }
+
+    pub fn require_boxed(self, dim: Box<dyn Dimension>) -> Self {
         let state = dim.new_state(1.0);
-        self.entries[self.idx].dims.push(DimEntry { dim: Box::new(dim), state, reject_on_miss: true });
+        self.entries[self.idx].dims.push(DimEntry { dim, state, reject_on_miss: true });
         self
     }
 
     pub fn prefer(self, dim: impl Dimension + 'static, weight: f32) -> Self {
+        self.prefer_boxed(Box::new(dim), weight)
+    }
+
+    pub fn prefer_boxed(self, dim: Box<dyn Dimension>, weight: f32) -> Self {
         let state = dim.new_state(weight);
-        self.entries[self.idx].dims.push(DimEntry { dim: Box::new(dim), state, reject_on_miss: false });
+        self.entries[self.idx].dims.push(DimEntry { dim, state, reject_on_miss: false });
         self
     }
 }

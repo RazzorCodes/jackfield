@@ -1,9 +1,9 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::async_trait;
 use tonic::transport::Server;
@@ -22,7 +22,7 @@ use crate::components::message::Message;
 pub struct GrpcEndpoint {
     name: String,
     addr: SocketAddr,
-    handle: Option<ProducerHandle>,
+    handle: Arc<Mutex<Option<ProducerHandle>>>,
     registry: ConnectionRegistry<proto::BusMessage>,
 }
 
@@ -31,21 +31,16 @@ impl GrpcEndpoint {
         GrpcEndpoint {
             name: name.into(),
             addr,
-            handle: None,
+            handle: Arc::new(Mutex::new(None)),
             registry: ConnectionRegistry::new(),
         }
     }
 
-    pub fn accept_labels(mut self, labels: Vec<String>) -> Self {
-        self.registry = self.registry.accept_labels(labels);
-        self
-    }
-
-    pub fn start(self) -> JoinHandle<()> {
+    pub fn start(&self) -> JoinHandle<()> {
         let service = JackfieldGrpcService {
-            name: self.name,
-            handle: Arc::new(Mutex::new(self.handle)),
-            registry: self.registry,
+            name: self.name.clone(),
+            handle: self.handle.clone(),
+            registry: self.registry.clone(),
         };
         let addr = self.addr;
         tokio::spawn(async move {
@@ -56,6 +51,10 @@ impl GrpcEndpoint {
                 .ok();
         })
     }
+
+    pub fn consumer(&self) -> GrpcConsumer {
+        GrpcConsumer { registry: self.registry.clone() }
+    }
 }
 
 impl Producer for GrpcEndpoint {
@@ -64,7 +63,7 @@ impl Producer for GrpcEndpoint {
     }
 
     fn attach(&mut self, handle: ProducerHandle) {
-        self.handle = Some(handle);
+        *self.handle.lock().unwrap() = Some(handle);
     }
 
     fn send_bus(&mut self, _msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send {
@@ -72,13 +71,17 @@ impl Producer for GrpcEndpoint {
     }
 }
 
-impl Consumer for GrpcEndpoint {
+pub struct GrpcConsumer {
+    registry: ConnectionRegistry<proto::BusMessage>,
+}
+
+impl Consumer for GrpcConsumer {
     fn available(&self) -> bool {
         self.registry.available()
     }
 
-    fn validate(&self, envelope: &Envelope) -> bool {
-        self.registry.validates(envelope)
+    fn validate(&self, _: &Envelope) -> bool {
+        true
     }
 
     fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
@@ -124,10 +127,8 @@ impl BusTrait for JackfieldGrpcService {
             let producer_id = ProducerId(format!("{}/{}", name, conn_id));
             while let Ok(Some(proto_msg)) = inbound.message().await {
                 let msg: Box<dyn Message> = proto_msg.into();
-                let guard = handle.lock().await;
-                if let Some(h) = guard.as_ref() {
-                    let fut = h.make_send_with_origin(producer_id.clone(), msg);
-                    drop(guard);
+                let fut = handle.lock().unwrap().as_ref().map(|h| h.make_send_with_origin(producer_id.clone(), msg));
+                if let Some(fut) = fut {
                     let _ = fut.await;
                 }
             }

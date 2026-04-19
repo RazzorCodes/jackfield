@@ -526,6 +526,7 @@ dependencies = [
  "bitflags",
  "futures-util",
  "prost",
+ "prost-build",
  "pyo3",
  "tokio",
  "tokio-stream",

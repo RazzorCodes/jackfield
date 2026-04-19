@@ -4,24 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uuid = { version = "1.8", features = ["v4"] }
-bitflags = {version = "2.4"}
-tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
-tonic = { version = "0.12", features = ["transport"] }
-prost = "0.13"
-tokio-stream = "0.1"
-tokio-tungstenite = "0.24"
-futures-util = "0.3"
+uuid     = { version = "1.8", features = ["v4"] }
+bitflags = { version = "2.4" }
+tokio    = { version = "1", features = ["sync", "rt", "macros", "time"] }
+
+prost            = { version = "0.13", optional = true }
+tonic            = { version = "0.12", features = ["transport"], optional = true }
+tokio-stream     = { version = "0.1",  optional = true }
+tokio-tungstenite = { version = "0.24", optional = true }
+futures-util     = { version = "0.3",  optional = true }
 
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"], optional = true }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = { version = "0.12", optional = true }
+prost-build = { version = "0.13", optional = true }
 
 [features]
-python = ["dep:pyo3"]
-# ---
-default = []
+grpc      = ["dep:tonic", "dep:tokio-stream", "dep:prost", "dep:tonic-build"]
+websocket = ["dep:tokio-tungstenite", "dep:futures-util", "dep:prost", "dep:prost-build"]
+network   = ["grpc", "websocket"]
+python    = ["dep:pyo3"]
+default   = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -1,6 +1,7 @@
 use super::dimension::{DimState, Dimension, Verdict};
 use crate::components::bus::envelope::Envelope;
 
+#[derive(Clone)]
 enum Matcher {
     AnyOf(Vec<String>),
     NoneOf(Vec<String>),
@@ -15,6 +16,7 @@ impl Matcher {
     }
 }
 
+#[derive(Clone)]
 pub struct ProducerDim(Matcher);
 
 impl ProducerDim {
@@ -41,12 +43,14 @@ impl Dimension for ProducerDim {
     }
 }
 
+#[derive(Clone)]
 enum LabelMatcher {
     AnyOf(Vec<String>),
     AllOf(Vec<String>),
     NoneOf(Vec<String>),
 }
 
+#[derive(Clone)]
 pub struct LabelDim(LabelMatcher);
 
 impl LabelDim {
@@ -75,6 +79,7 @@ impl Dimension for LabelDim {
     }
 }
 
+#[derive(Clone)]
 pub struct SizeDim {
     min: Option<usize>,
     max: Option<usize>,

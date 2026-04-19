@@ -7,10 +7,7 @@ use jackfield::components::bus::bus::Bus;
 use jackfield::components::bus::dims::ProducerDim;
 use jackfield::components::bus::envelope::Envelope;
 use jackfield::components::bus::throttle::Throttle;
-use jackfield::components::bus::codec::proto;
 use jackfield::components::endpoint::{Consumer, Endpoint, EndpointType, Producer};
-use jackfield::components::endpoints::grpc::GrpcEndpoint;
-use jackfield::components::endpoints::ws::WsEndpoint;
 use jackfield::components::message::{BaseMessage, Message};
 
 // --- helpers ---
@@ -291,9 +288,12 @@ async fn throttle_limits_send_rate() {
     assert_eq!(ts.len(), 5, "All 5 messages should be consumed");
 }
 
+#[cfg(feature = "grpc")]
 #[tokio::test]
 async fn grpc_endpoint_bidirectional() {
+    use jackfield::components::bus::codec::proto;
     use jackfield::components::bus::codec::proto::bus_client::BusClient;
+    use jackfield::components::endpoints::grpc::GrpcEndpoint;
     use tonic::Request;
 
     let addr: std::net::SocketAddr = "127.0.0.1:50051".parse().unwrap();
@@ -334,9 +334,12 @@ async fn grpc_endpoint_bidirectional() {
     assert_eq!(got[0], vec!["from_grpc"]);
 }
 
+#[cfg(feature = "websocket")]
 #[tokio::test]
 async fn ws_endpoint_bidirectional() {
     use futures_util::SinkExt;
+    use jackfield::components::bus::codec::proto;
+    use jackfield::components::endpoints::ws::WsEndpoint;
     use prost::Message as ProstMessage;
     use tokio_tungstenite::connect_async;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
