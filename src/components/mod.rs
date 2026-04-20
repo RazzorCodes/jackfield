@@ -2,9 +2,11 @@
 pub mod bus;
 pub mod endpoint;
 pub mod message;
+pub mod registry;
 pub mod router;
 
-pub use bus::{Bus, JackfieldError, RegistrationBuilder};
+pub use bus::{Bus, JackfieldError};
+pub use registry::RegistrationBuilder;
 pub use endpoint::{Consumer, Endpoint, EndpointType, Producer, Throttle};
 pub use message::{BaseMessage, Message};
 pub use router::{

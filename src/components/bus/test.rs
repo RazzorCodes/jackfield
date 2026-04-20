@@ -95,6 +95,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deregister_removes_consumer_from_routing() {
+        let mut bus = Bus::default();
+
+        let id = bus.register_consumer(Box::new(MockConsumer::new())).id;
+
+        let mut ep = Endpoint::new("producer", EndpointType::PRODUCER);
+        bus.register_producer(&mut ep);
+
+        ep.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
+        bus.drain().await;
+        assert!(bus.is_empty(), "message should be consumed before deregistration");
+
+        let removed = bus.deregister_consumer(id);
+        assert!(removed, "deregister should return true for known id");
+
+        ep.send_bus(Box::new(BaseMessage::new(None, None, None))).await.unwrap();
+        bus.drain().await;
+        assert!(!bus.is_empty(), "message should remain pending after deregistration");
+    }
+
+    #[test]
+    fn deregister_unknown_id_returns_false() {
+        let mut bus = Bus::default();
+        assert!(!bus.deregister_consumer(99), "unknown id should return false");
+    }
+
+    #[tokio::test]
     async fn producer_identity_preserved() {
         use std::sync::{Arc, Mutex};
 

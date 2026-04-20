@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::components::registry::registry::Registry;
+use crate::components::registry::RegistrationBuilder;
 use crate::components::router::envelope::{Envelope, ProducerId, ProducerHandle};
-use crate::components::router::registry::RegistrationBuilder;
 use crate::components::router::router::{AffinityRouter, Router};
 use crate::components::endpoint::{Consumer, Producer, Throttle};
 use crate::components::endpoint::throttle::TokenBucket;
@@ -14,6 +15,7 @@ pub struct Bus<R: Router = AffinityRouter> {
     tx: mpsc::Sender<Envelope>,
     rx: mpsc::Receiver<Envelope>,
     router: R,
+    registry: Registry,
     pending: VecDeque<Envelope>,
     max_pending: usize,
 }
@@ -21,7 +23,7 @@ pub struct Bus<R: Router = AffinityRouter> {
 impl<R: Router> Bus<R> {
     pub fn with_router(capacity: usize, router: R) -> Self {
         let (tx, rx) = mpsc::channel(capacity);
-        Bus { tx, rx, router, pending: VecDeque::new(), max_pending: usize::MAX }
+        Bus { tx, rx, router, registry: Registry::new(), pending: VecDeque::new(), max_pending: usize::MAX }
     }
 
     pub fn max_pending(mut self, cap: usize) -> Self {
@@ -37,7 +39,11 @@ impl<R: Router> Bus<R> {
     }
 
     pub fn register_consumer(&mut self, consumer: Box<dyn Consumer>) -> RegistrationBuilder<'_> {
-        self.router.register_consumer(consumer)
+        self.registry.register(consumer)
+    }
+
+    pub fn deregister_consumer(&mut self, id: u64) -> bool {
+        self.registry.deregister(id)
     }
 
     pub fn make_handle(&self, name: impl Into<String>) -> ProducerHandle {
@@ -61,7 +67,7 @@ impl<R: Router> Bus<R> {
     }
 
     async fn route(&mut self, envelope: Envelope) -> Option<Envelope> {
-        self.router.route(envelope).await
+        self.router.route(&mut self.registry, envelope).await
     }
 
     pub async fn drain(&mut self) {

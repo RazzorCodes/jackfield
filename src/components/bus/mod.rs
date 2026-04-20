@@ -4,5 +4,5 @@ pub mod error;
 #[cfg(test)]
 pub mod test;
 pub use bus::Bus;
-pub use crate::components::router::registry::RegistrationBuilder;
+pub use crate::components::registry::RegistrationBuilder;
 pub use error::JackfieldError;
