@@ -48,3 +48,24 @@ pub trait Dimension: Send + Sync {
         DimState { weight: initial_weight, inner: Box::new(()) }
     }
 }
+
+/// Exponential weight adjustment shared by all built-in dimensions.
+///
+/// Consumed  → reward   (×1.1, cap 100.0)
+/// Busy      → penalise (×0.8, floor 0.001)
+/// Vetoed    → penalise (×0.9, floor 0.001)
+/// Skipped   → no change (outranked, not misbehaving)
+pub(crate) fn adjust_weight(event: &DispatchEvent, state: &mut DimState) {
+    match event {
+        DispatchEvent::Consumed { .. } => {
+            state.weight = (state.weight * 1.1).min(100.0);
+        }
+        DispatchEvent::Busy { .. } => {
+            state.weight = (state.weight * 0.8).max(0.001);
+        }
+        DispatchEvent::Vetoed { .. } => {
+            state.weight = (state.weight * 0.9).max(0.001);
+        }
+        _ => {}
+    }
+}

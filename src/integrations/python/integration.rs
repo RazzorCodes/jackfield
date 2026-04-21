@@ -138,8 +138,8 @@ impl PyMessage {
 #[pyclass(name = "MessageBus")]
 pub struct PyMessageBus {
     rt: Runtime,
-    bus: Bus,
-    handles: HashMap<String, ProducerHandle>,
+    bus: std::sync::Mutex<Bus>,
+    handles: std::sync::Mutex<HashMap<String, ProducerHandle>>,
     consumer_queues: Vec<(Arc<PyObject>, PendingMessages)>,
 }
 
@@ -153,8 +153,8 @@ impl PyMessageBus {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self {
             rt,
-            bus: Bus::default(),
-            handles: HashMap::new(),
+            bus: std::sync::Mutex::new(Bus::default()),
+            handles: std::sync::Mutex::new(HashMap::new()),
             consumer_queues: Vec::new(),
         })
     }
@@ -172,7 +172,8 @@ impl PyMessageBus {
         let pending: PendingMessages = Arc::new(Mutex::new(Vec::new()));
         self.consumer_queues.push((Arc::clone(&callback), Arc::clone(&pending)));
         let wrapper = PyConsumerWrapper { pending };
-        let mut builder = self.bus.register_consumer(Box::new(wrapper));
+        let mut binding = self.bus.lock().unwrap();
+        let mut builder = binding.register_consumer(Box::new(wrapper));
 
         if let Some(name) = require_from {
             builder = builder.require(ProducerDim::only(name));
@@ -191,23 +192,27 @@ impl PyMessageBus {
         }
     }
 
-    pub fn send(&mut self, producer_name: String, msg: &PyMessage) -> PyResult<()> {
+    pub fn send(&self, producer_name: String, msg: &PyMessage) -> PyResult<()> {
         let uuid = msg.inner.get_uuid();
         let labels = msg.inner.get_labels().to_vec();
         let data = msg.inner.get_bytes().to_vec();
 
-        if !self.handles.contains_key(&producer_name) {
-            let h = self.bus.make_handle(&producer_name);
-            self.handles.insert(producer_name.clone(), h);
+        let mut handles = self.handles.lock().unwrap();
+        if !handles.contains_key(&producer_name) {
+            let h = self.bus.lock().unwrap().make_handle(&producer_name);
+            handles.insert(producer_name.clone(), h);
         }
 
-        self.handles[&producer_name]
+        handles[&producer_name]
             .try_make_send(Box::new(BaseMessage::new(Some(uuid), Some(labels), Some(data))))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
-    pub fn drain(&mut self, py: Python<'_>) -> PyResult<()> {
-        py.allow_threads(|| self.rt.block_on(self.bus.drain()));
+    pub fn drain(&self, py: Python<'_>) -> PyResult<()> {
+        py.allow_threads(|| {
+            let mut bus = self.bus.lock().unwrap();
+            self.rt.block_on(bus.drain())
+        });
 
         let mut first_err: Option<PyErr> = None;
         for (callback, pending) in &self.consumer_queues {
@@ -235,7 +240,7 @@ impl PyMessageBus {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bus.is_empty()
+        self.bus.lock().unwrap().is_empty()
     }
 }
 

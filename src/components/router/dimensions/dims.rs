@@ -1,5 +1,5 @@
 // Built-in routing dimensions: ProducerDim (by origin name), LabelDim (by message labels), SizeDim (by payload size).
-use super::dimension::{DimState, Dimension, Verdict};
+use super::dimension::{adjust_weight, DimState, Dimension, DispatchEvent, Verdict};
 use crate::components::router::envelope::Envelope;
 
 #[derive(Clone)]
@@ -42,6 +42,10 @@ impl Dimension for ProducerDim {
             Verdict::Reject
         }
     }
+
+    fn observe(&self, event: &DispatchEvent, state: &mut DimState) {
+        adjust_weight(event, state);
+    }
 }
 
 #[derive(Clone)]
@@ -78,6 +82,10 @@ impl Dimension for LabelDim {
         };
         Verdict::Score(if matched { 1.0 } else { 0.0 })
     }
+
+    fn observe(&self, event: &DispatchEvent, state: &mut DimState) {
+        adjust_weight(event, state);
+    }
 }
 
 #[derive(Clone)]
@@ -111,5 +119,9 @@ impl Dimension for SizeDim {
         } else {
             Verdict::Score(1.0)
         }
+    }
+
+    fn observe(&self, event: &DispatchEvent, state: &mut DimState) {
+        adjust_weight(event, state);
     }
 }
