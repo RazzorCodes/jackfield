@@ -3,15 +3,15 @@ pub mod components;
 pub mod integrations;
 
 pub use components::{
-    AffinityRouter, BaseMessage, BlindRouter, Bus, Consumer, Dimension, DimState, DispatchEvent,
-    Endpoint, EndpointType, Envelope, EventMeta, JackfieldError, LabelDim, Message, Producer,
-    ProducerDim, ProducerHandle, ProducerId, RegistrationBuilder, Router, SizeDim, Throttle,
-    Verdict,
+    AffinityRouter, BaseMessage, BlindRouter, Bus, BusCmdHandle, Consumer, Dimension, DimState,
+    DispatchEvent, Endpoint, EndpointType, Envelope, EventMeta, JackfieldError, LabelDim, Message,
+    Producer, ProducerDim, ProducerHandle, ProducerId, RegistrationBuilder, Router, SizeDim,
+    Throttle, Verdict,
 };
 #[cfg(feature = "grpc")]
-pub use components::{GrpcConsumer, GrpcEndpoint};
+pub use components::GrpcEndpoint;
 #[cfg(feature = "websocket")]
-pub use components::{WsConsumer, WsEndpoint};
+pub use components::WsEndpoint;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;

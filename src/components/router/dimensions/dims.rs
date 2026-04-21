@@ -80,7 +80,7 @@ impl Dimension for LabelDim {
             LabelMatcher::AllOf(l) => l.iter().all(|label| msg_labels.contains(label)),
             LabelMatcher::NoneOf(l) => !l.iter().any(|label| msg_labels.contains(label)),
         };
-        Verdict::Score(if matched { 1.0 } else { 0.0 })
+        if matched { Verdict::Score(1.0) } else { Verdict::Reject }
     }
 
     fn observe(&self, event: &DispatchEvent, state: &mut DimState) {

@@ -1,4 +1,4 @@
-// Protobuf codec: generated BusMessage type + From conversions to/from Box<dyn Message>.
+// Protobuf codec: generated BusableItem type + From conversions to/from Box<dyn Message>.
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/jackfield.rs"));
 }
@@ -6,9 +6,9 @@ pub mod proto {
 use crate::components::message::{BaseMessage, Message};
 use uuid::Uuid;
 
-impl From<Box<dyn Message>> for proto::BusMessage {
+impl From<Box<dyn Message>> for proto::BusableItem {
     fn from(msg: Box<dyn Message>) -> Self {
-        proto::BusMessage {
+        proto::BusableItem {
             uuid: msg.get_uuid().as_bytes().to_vec(),
             labels: msg.get_labels().to_vec(),
             data: msg.get_bytes().to_vec(),
@@ -16,8 +16,8 @@ impl From<Box<dyn Message>> for proto::BusMessage {
     }
 }
 
-impl From<proto::BusMessage> for Box<dyn Message> {
-    fn from(proto: proto::BusMessage) -> Self {
+impl From<proto::BusableItem> for Box<dyn Message> {
+    fn from(proto: proto::BusableItem) -> Self {
         let uuid = Uuid::from_slice(&proto.uuid).unwrap_or_default();
         Box::new(BaseMessage::new(
             Some(uuid),

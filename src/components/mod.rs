@@ -5,7 +5,7 @@ pub mod message;
 pub mod registry;
 pub mod router;
 
-pub use bus::{Bus, JackfieldError};
+pub use bus::{Bus, BusCmdHandle, JackfieldError};
 pub use registry::RegistrationBuilder;
 pub use endpoint::{Consumer, Endpoint, EndpointType, Producer, Throttle};
 pub use message::{BaseMessage, Message};
@@ -15,6 +15,6 @@ pub use router::{
     LabelDim, ProducerDim, ProducerHandle, ProducerId, SizeDim, Verdict,
 };
 #[cfg(feature = "grpc")]
-pub use endpoint::{GrpcConsumer, GrpcEndpoint};
+pub use endpoint::GrpcEndpoint;
 #[cfg(feature = "websocket")]
-pub use endpoint::{WsConsumer, WsEndpoint};
+pub use endpoint::WsEndpoint;

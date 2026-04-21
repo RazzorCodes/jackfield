@@ -43,6 +43,7 @@ pub struct Envelope {
     pub message: Box<dyn Message>,
 }
 
+#[derive(Clone)]
 pub struct ProducerHandle {
     origin: ProducerId,
     sender: mpsc::Sender<Envelope>,

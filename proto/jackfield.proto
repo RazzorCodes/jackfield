@@ -1,12 +1,46 @@
 syntax = "proto3";
 package jackfield;
 
-message BusMessage {
-    bytes           uuid   = 1;
-    repeated string labels = 2;
-    bytes           data   = 3;
+enum EndpointType {
+  PRODUCER = 0;
+  CONSUMER = 1;
 }
 
+message RegisterData {
+  string name = 1;
+  repeated EndpointType type = 2;
+  string dimensions_json = 3;
+}
+
+message DeregisterNotification {
+  bytes uuid = 1;
+}
+
+message BusableItem {
+  bytes uuid = 1;
+  repeated string labels = 2;
+  bytes data = 3;
+}
+
+enum GenericStatus {
+  UNDEFINED = 0;
+  PARTIAL = 1;
+  SUCCESS = 2;
+  FAIL = 3;
+  ERROR = 4;
+}
+
+message GenericResponse {
+  GenericStatus status = 1;
+  oneof data {
+    bytes uuid = 2;
+  }
+}
+
+message Empty {}
+
 service Bus {
-    rpc Stream(stream BusMessage) returns (stream BusMessage);
+  rpc Register(RegisterData) returns (GenericResponse);
+  rpc Stream(stream BusableItem) returns (stream BusableItem);
+  rpc Deregister(DeregisterNotification) returns (Empty);
 }

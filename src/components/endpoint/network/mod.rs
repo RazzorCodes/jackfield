@@ -5,6 +5,6 @@ pub mod grpc;
 pub mod ws;
 pub use connection::ConnectionRegistry;
 #[cfg(feature = "grpc")]
-pub use grpc::{GrpcConsumer, GrpcEndpoint};
+pub use grpc::GrpcEndpoint;
 #[cfg(feature = "websocket")]
-pub use ws::{WsConsumer, WsEndpoint};
+pub use ws::WsEndpoint;

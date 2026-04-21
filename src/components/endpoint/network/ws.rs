@@ -1,8 +1,7 @@
-// WsEndpoint: tokio-tungstenite WebSocket server. Same inbound/outbound split as GrpcEndpoint; wire format is protobuf-encoded BusMessage.
-use std::future::Future;
+// WsEndpoint: tokio-tungstenite server with self-registering connections.
+// First binary frame = proto::RegisterData (role + dimensions_json).
+// Subsequent frames = proto::BusableItem. Disconnect = implicit deregister.
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
@@ -12,128 +11,128 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
+use crate::components::bus::bus::BusCmdHandle;
 use crate::components::message::codec::proto;
-use crate::components::router::envelope::{Envelope, ProducerId, ProducerHandle};
-use crate::components::bus::error::JackfieldError;
-use crate::components::endpoint::{Consumer, Producer};
-use crate::components::endpoint::network::ConnectionRegistry;
+use crate::components::endpoint::network::connection::{ChannelConsumer, parse_dimensions};
 use crate::components::message::Message;
 
 pub struct WsEndpoint {
     name: String,
     addr: SocketAddr,
-    handle: Arc<Mutex<Option<ProducerHandle>>>,
-    registry: ConnectionRegistry<Vec<u8>>,
+    cmd_handle: BusCmdHandle,
 }
 
 impl WsEndpoint {
-    pub fn new(name: impl Into<String>, addr: SocketAddr) -> Self {
-        WsEndpoint {
-            name: name.into(),
-            addr,
-            handle: Arc::new(Mutex::new(None)),
-            registry: ConnectionRegistry::new(),
-        }
+    pub fn new(name: impl Into<String>, addr: SocketAddr, cmd_handle: BusCmdHandle) -> Self {
+        WsEndpoint { name: name.into(), addr, cmd_handle }
     }
 
     pub fn start(&self) -> JoinHandle<()> {
         let name = self.name.clone();
-        let handle = self.handle.clone();
-        let registry = self.registry.clone();
+        let cmd_handle = self.cmd_handle.clone();
         let addr = self.addr;
-
         tokio::spawn(async move {
             let listener = TcpListener::bind(addr).await.expect("ws bind failed");
             loop {
                 let Ok((stream, _peer)) = listener.accept().await else { continue };
-
-                let (outbound_tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-                let conn_id = registry.connect(outbound_tx).await;
-
                 let name = name.clone();
-                let handle = handle.clone();
-                let registry = registry.clone();
-
+                let cmd_handle = cmd_handle.clone();
                 tokio::spawn(async move {
-                    let ws = match accept_async(stream).await {
-                        Ok(ws) => ws,
-                        Err(_) => {
-                            registry.disconnect(conn_id).await;
-                            return;
-                        }
-                    };
-                    let (mut sink, mut source) = ws.split();
-
-                    let sink_task = tokio::spawn(async move {
-                        while let Some(bytes) = outbound_rx.recv().await {
-                            if sink.send(WsMessage::Binary(bytes.into())).await.is_err() {
-                                break;
-                            }
-                        }
-                    });
-
-                    let producer_id = ProducerId(format!("{}/{}", name, conn_id));
-                    while let Some(Ok(ws_msg)) = source.next().await {
-                        let bytes = match ws_msg {
-                            WsMessage::Binary(b) => b,
-                            WsMessage::Close(_) => break,
-                            _ => continue,
-                        };
-                        let Ok(proto_msg) = proto::BusMessage::decode(bytes.as_ref()) else {
-                            continue;
-                        };
-                        let msg: Box<dyn Message> = proto_msg.into();
-                        let fut = handle.lock().unwrap().as_ref().map(|h| h.make_send_with_origin(producer_id.clone(), msg));
-                        if let Some(fut) = fut {
-                            let _ = fut.await;
-                        }
-                    }
-
-                    sink_task.abort();
-                    registry.disconnect(conn_id).await;
+                    handle_connection(name, cmd_handle, stream).await;
                 });
             }
         })
     }
-
-    pub fn consumer(&self) -> WsConsumer {
-        WsConsumer { registry: self.registry.clone() }
-    }
 }
 
-impl Producer for WsEndpoint {
-    fn name(&self) -> &str {
-        &self.name
-    }
+async fn handle_connection(
+    _name: String,
+    cmd_handle: BusCmdHandle,
+    stream: tokio::net::TcpStream,
+) {
+    let ws = match accept_async(stream).await {
+        Ok(ws) => ws,
+        Err(_) => return,
+    };
+    let (mut sink, mut source) = ws.split();
 
-    fn attach(&mut self, handle: ProducerHandle) {
-        *self.handle.lock().unwrap() = Some(handle);
-    }
+    // First binary frame must be RegisterData.
+    let reg = loop {
+        match source.next().await {
+            Some(Ok(WsMessage::Binary(b))) => {
+                match proto::RegisterData::decode(b.as_ref()) {
+                    Ok(r) => break r,
+                    Err(_) => return,
+                }
+            }
+            Some(Ok(WsMessage::Close(_))) | None => return,
+            _ => continue,
+        }
+    };
 
-    fn send_bus(&mut self, _msg: Box<dyn Message>) -> impl Future<Output = Result<(), JackfieldError>> + Send {
-        async move { Err(JackfieldError::NotRegistered) }
-    }
-}
+    let is_consumer = reg.r#type.contains(&(proto::EndpointType::Consumer as i32));
+    let is_producer = reg.r#type.contains(&(proto::EndpointType::Producer as i32));
 
-pub struct WsConsumer {
-    registry: ConnectionRegistry<Vec<u8>>,
-}
+    let dims = match parse_dimensions(&reg.dimensions_json) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
 
-impl Consumer for WsConsumer {
-    fn available(&self) -> bool {
-        self.registry.available()
-    }
-
-    fn validate(&self, _: &Envelope) -> bool {
-        true
-    }
-
-    fn consume(&mut self, message: Box<dyn Message>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        let bytes = {
-            let proto_msg: proto::BusMessage = message.into();
-            proto_msg.encode_to_vec()
+    // Register as consumer: allocate channel, register ChannelConsumer in bus,
+    // spawn task forwarding bus items → WS sink.
+    let consumer_reg_id = if is_consumer {
+        let (tx, mut rx) = mpsc::channel::<proto::BusableItem>(256);
+        let consumer = Box::new(ChannelConsumer { tx });
+        let id = match cmd_handle.register(consumer, dims).await {
+            Ok(id) => id,
+            Err(_) => return,
         };
-        let registry = self.registry.clone();
-        Box::pin(async move { registry.broadcast(bytes).await })
+        let sink_tx = {
+            let (bytes_tx, mut bytes_rx) = mpsc::channel::<Vec<u8>>(256);
+            tokio::spawn(async move {
+                while let Some(b) = bytes_rx.recv().await {
+                    if sink.send(WsMessage::Binary(b.into())).await.is_err() { break; }
+                }
+            });
+            bytes_tx
+        };
+        tokio::spawn(async move {
+            while let Some(item) = rx.recv().await {
+                if sink_tx.send(item.encode_to_vec()).await.is_err() { break; }
+            }
+        });
+        Some(id)
+    } else {
+        None
+    };
+
+    // Producer handle for inbound frames.
+    let producer_handle = if is_producer {
+        Some(cmd_handle.make_producer_handle(
+            format!("{}/{}", reg.name, uuid::Uuid::new_v4())
+        ))
+    } else {
+        None
+    };
+
+    // Main inbound loop — runs until the connection closes (clean or crash).
+    while let Some(Ok(ws_msg)) = source.next().await {
+        match ws_msg {
+            WsMessage::Binary(b) => {
+                if let Some(handle) = &producer_handle {
+                    if let Ok(item) = proto::BusableItem::decode(b.as_ref()) {
+                        let msg: Box<dyn Message> = item.into();
+                        let _ = handle.make_send(msg).await;
+                    }
+                }
+            }
+            WsMessage::Close(_) => break,
+            _ => continue,
+        }
+    }
+
+    // Implicit deregister on any disconnect.
+    if let Some(id) = consumer_reg_id {
+        cmd_handle.deregister(id).await;
     }
 }
