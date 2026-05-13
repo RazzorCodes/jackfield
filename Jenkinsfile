@@ -42,7 +42,7 @@ fi
           sh '''#!/usr/bin/env bash
 set -euo pipefail
 DEBIAN_FRONTEND=noninteractive apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv protobuf-compiler
 make test-rs
 make dev
 make test-py
