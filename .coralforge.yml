@@ -1,0 +1,70 @@
+version: 1
+
+repo:
+  name: jackfield
+  owner: RazzorCodes
+  repo: jackfield
+
+providers:
+  jenkins:
+    kind: jenkins
+    endpoint: http://jenkins.kube-ex.svc.cluster.local:8080
+    job: jackfield-pipeline
+    auth:
+      user:
+        secretRef:
+          namespace: jenkins
+          name: admin-user
+          key: value
+      token:
+        secretRef:
+          namespace: jenkins
+          name: api-token
+          key: value
+
+run_types:
+  ci:
+    default_provider: jenkins
+    provider_target:
+      job: jackfield-pipeline
+      run_type: ci
+    trigger:
+      mode: automatic
+      branches: [main]
+    stages:
+      - name: ci
+        provider: jenkins
+        target:
+          job: jackfield-pipeline
+          stage: ci
+
+  release:
+    default_provider: jenkins
+    provider_target:
+      job: jackfield-pipeline
+      run_type: release
+    trigger:
+      mode: manual
+    stages:
+      - name: release
+        provider: jenkins
+        target:
+          job: jackfield-pipeline
+          stage: release
+
+  stable:
+    default_provider: jenkins
+    provider_target:
+      job: jackfield-pipeline
+      run_type: stable
+    trigger:
+      mode: manual
+    stages:
+      - name: stable
+        provider: jenkins
+        target:
+          job: jackfield-pipeline
+          stage: stable
+
+metadata:
+  default_ref: main
