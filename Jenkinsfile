@@ -152,7 +152,7 @@ String bumpFromTags(String bumpType) {
   }
 
   List<Integer> latest = versions
-    .collect { it.split('\.').collect { p -> p as Integer } }
+    .collect { it.split('\\.').collect { p -> p as Integer } }
     .sort { a, b ->
       (a[0] <=> b[0]) ?: (a[1] <=> b[1]) ?: (a[2] <=> b[2])
     }
