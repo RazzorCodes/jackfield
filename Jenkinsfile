@@ -38,7 +38,8 @@ fi
         expression { params.RUN_TYPE == 'ci' || params.RUN_TYPE == 'release' || params.RUN_TYPE == 'stable' }
       }
       steps {
-        sh '''#!/usr/bin/env bash
+        container('build') {
+          sh '''#!/usr/bin/env bash
 set -euo pipefail
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv
 make test-rs
@@ -49,6 +50,7 @@ if [[ "${WHEEL_SMOKE}" == "true" ]]; then
   ../../../.venv/bin/maturin build --release --out ../../../target/wheels
 fi
 '''
+        }
       }
     }
 
@@ -61,7 +63,8 @@ fi
           env.RELEASE_VERSION = resolveVersion('release')
           currentBuild.displayName = "release-${env.RELEASE_VERSION}"
         }
-        sh '''#!/usr/bin/env bash
+        container('build') {
+          sh '''#!/usr/bin/env bash
 set -euo pipefail
 echo "Preparing release for ${RELEASE_VERSION} (actor=${ACTOR})"
 if [[ "${DRY_RUN}" == "true" ]]; then
@@ -71,6 +74,7 @@ fi
 cd src/integrations/python
 ../../../.venv/bin/maturin build --release --out ../../../target/wheels
 '''
+        }
       }
     }
 
@@ -83,7 +87,8 @@ cd src/integrations/python
           env.STABLE_VERSION = resolveVersion('stable')
           currentBuild.displayName = "stable-${env.STABLE_VERSION}"
         }
-        sh '''#!/usr/bin/env bash
+        container('build') {
+          sh '''#!/usr/bin/env bash
 set -euo pipefail
 if ! git rev-parse --verify --quiet "refs/tags/v${STABLE_VERSION}" >/dev/null; then
   echo "Missing release tag v${STABLE_VERSION}; cannot mark stable"
@@ -99,6 +104,7 @@ fi
 git tag -f "stable-${STABLE_VERSION}" "refs/tags/v${STABLE_VERSION}"
 git push origin "refs/tags/stable-${STABLE_VERSION}" --force
 '''
+        }
       }
     }
   }
